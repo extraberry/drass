@@ -6,11 +6,12 @@ from .worker import run_async
 
 class LoginWindow(QWidget):
     logged_in = Signal()
+    guest_requested = Signal()
 
     def __init__(self, api, message: str = ""):
         super().__init__()
         self.api = api
-        self.setWindowTitle("DRASS — Sign in"); self.setFixedSize(460, 520)
+        self.setWindowTitle("DRASS — Sign in"); self.setFixedSize(460, 600)
         lay = QVBoxLayout(self); lay.setContentsMargins(40, 30, 40, 30)
         lay.addWidget(h1("DRASS")); lay.addWidget(muted("Digital Research Archiving System with Semantic Search"))
         lay.addWidget(muted("Mary the Queen College of Quezon City, Inc."))
@@ -23,9 +24,16 @@ class LoginWindow(QWidget):
         lay.addLayout(form)
         self.msg = QLabel(message); self.msg.setObjectName("error"); self.msg.setWordWrap(True); lay.addWidget(self.msg)
         self.btn = button("Sign in", "primary", self.submit); lay.addWidget(self.btn)
+        lay.addWidget(button("Continue as guest (search and browse)", slot=self.guest_requested.emit))
+        lay.addWidget(button("Create student account", slot=self.register))
         lay.addStretch(1)
         lay.addWidget(muted("Access is logged. Contact the system administrator if you cannot sign in."))
         self.pw.returnPressed.connect(self.submit); self.user.returnPressed.connect(self.pw.setFocus)
+
+    def register(self):
+        from .dialogs.register_dialog import RegisterDialog
+        self.api.base = self.server.text().strip().rstrip("/")
+        RegisterDialog(self.api, self).exec()
 
     def submit(self):
         if not self.user.text().strip() or not self.pw.text():

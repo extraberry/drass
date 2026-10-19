@@ -47,7 +47,7 @@ class User(Base):
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.role_id"), index=True)
     full_name: Mapped[str] = mapped_column(String(150))
     email: Mapped[str] = mapped_column(String(150), unique=True)
-    student_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    student_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, unique=True)   # one student, one account
     department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("departments.department_id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -232,3 +232,15 @@ class SystemSetting(Base):
     setting_value: Mapped[str] = mapped_column(String(255))
     updated_by: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class StudentRoster(Base):
+    """Registrar-supplied list of enrolled students; only these may self-register."""
+    __tablename__ = "student_roster"
+    roster_id: Mapped[int] = mapped_column(Integer, **PK)
+    student_number: Mapped[str] = mapped_column(String(30), unique=True)
+    last_name: Mapped[str] = mapped_column(String(100))
+    first_name: Mapped[str] = mapped_column(String(100))
+    department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("departments.department_id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

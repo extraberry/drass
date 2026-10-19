@@ -20,15 +20,17 @@ def _nav(role, api):
         "DEAN": [dash, ("Pending Approvals", S(P.ReviewQueuePage, "Pending Approvals")), hist, ("Department Research", S(P.RepositoryPage, "Department Research")), search, reports, notif, prof],
         "LIBRARY_STAFF": [dash, repo, search, ("Indexing Monitor", S(P.IndexingPage)), reports, notif, prof],
         "HEAD_LIBRARIAN": [dash, ("Archive Approval Queue", S(P.ReviewQueuePage, "Archive Approval Queue")), hist, repo, search, ("Indexing Monitor", S(P.IndexingPage)), reports, notif, prof],
-        "ADMIN": [dash, ("Users", S(P.UsersPage)), ("Roles", S(P.RolesPage)), ("Departments / Programs / Categories", S(P.LookupsPage)), ("System Settings", S(P.SettingsPage)),
+        "ADMIN": [dash, ("Users", S(P.UsersPage)), ("Roles", S(P.RolesPage)), ("Departments / Programs / Categories", S(P.LookupsPage)), ("System Settings", S(P.SettingsPage)), ("Student Roster", S(P.RosterPage)),
                   ("Audit Logs", S(P.LogsPage, "audit-logs", "Audit Logs")), ("Activity Logs", S(P.LogsPage, "activity-logs", "Activity Logs")),
                   ("Repository Management", S(P.RepositoryPage, "Repository Management", True)), ("Indexing Monitor", S(P.IndexingPage)), search, reports, notif, prof],
         "EXTERNAL_USER": [dash, repo, search, prof],
+        "GUEST": [repo, search],
     }[role]
 
 
 class MainWindow(QMainWindow):
     logged_out = Signal(str)
+    sign_in_requested = Signal()
 
     def __init__(self, api):
         super().__init__()
@@ -40,9 +42,15 @@ class MainWindow(QMainWindow):
         left = QVBoxLayout(); left.addWidget(t); left.addWidget(sub)
         hl.addLayout(left); hl.addStretch(1)
         u = api.user
-        hl.addWidget(QLabel(f"{u['full_name']}  ·  {u['role'].replace('_', ' ').title()}"))
+        self.guest = u["role"] == "GUEST"
+        hl.addWidget(QLabel("Guest visitor — browse and search only" if self.guest else f"{u['full_name']}  ·  {u['role'].replace('_', ' ').title()}"))
         self.bell = button("🔔 0", slot=self.open_notifications); hl.addWidget(self.bell)
-        hl.addWidget(button("Log out", slot=lambda: self.logout()))
+        if self.guest:
+            self.bell.hide()
+            hl.addWidget(button("Create student account", slot=self.register))
+            hl.addWidget(button("Sign in", slot=self.sign_in_requested.emit))
+        else:
+            hl.addWidget(button("Log out", slot=lambda: self.logout()))
         outer.addWidget(header)
         body = QHBoxLayout(); body.setSpacing(0); outer.addLayout(body, 1)
         side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(250); sl = QVBoxLayout(side); sl.setContentsMargins(0, 8, 0, 8)
@@ -70,8 +78,12 @@ class MainWindow(QMainWindow):
 
     def set_unread(self, n): self.bell.setText(f"🔔 {n}")
 
+    def register(self):
+        from .dialogs.register_dialog import RegisterDialog
+        RegisterDialog(self.api, self).exec()
+
     def poll(self):
-        if self.api.role == "EXTERNAL_USER": self.bell.hide(); return
+        if self.api.role in ("EXTERNAL_USER", "GUEST"): self.bell.hide(); return
         run_async(lambda: self.api.get("/notifications", unread_only=True, limit=1)["unread"], self.set_unread, None)
 
     def logout(self, message=""):

@@ -37,7 +37,14 @@ class ApiClient:
             code, msg, fields = "HTTP_ERROR", "", None
         raise ApiError(code, FRIENDLY.get(code) or msg or f"The server returned an error ({r.status_code}).", r.status_code, fields)
 
+    PUBLIC_PREFIXES = ("/lookups", "/repository", "/search/semantic", "/recommendations")
+
     def request(self, method: str, path: str, **kw):
+        if not self.token:                                  # guest: use the unauthenticated, read-only endpoints
+            for pre in self.PUBLIC_PREFIXES:
+                if path == pre or path.startswith(pre + "/"):
+                    path = "/public" + path
+                    break
         kw.setdefault("timeout", 30)
         kw["headers"] = {**self._headers(), **kw.get("headers", {})}
         try:
@@ -67,6 +74,13 @@ class ApiClient:
         data = self.request("POST", "/auth/login", json={"username": username, "password": password}).json()
         self.token, self.user = data["token"], data["user"]
         return self.user
+
+    def enter_guest(self) -> None:
+        self.token = None
+        self.user = {"user_id": None, "username": "guest", "full_name": "Guest visitor", "role": "GUEST", "email": ""}
+
+    def register_student(self, body: dict) -> dict:
+        return self.request("POST", "/auth/register-student", json=body).json()
 
     def logout(self) -> None:
         try:

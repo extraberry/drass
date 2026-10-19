@@ -10,7 +10,8 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from server.app.db import Base, SessionLocal, engine  # noqa: E402
 from server.app.main import app  # noqa: E402
-from server.app.seed import seed_core, seed_demo  # noqa: E402
+from server.app.core import ratelimit  # noqa: E402
+from server.app.seed import seed_core, seed_demo, seed_roster  # noqa: E402
 from server.app.services import files_service, embedder  # noqa: E402
 
 STORAGE = os.environ["FILE_STORAGE_ROOT"]
@@ -24,8 +25,10 @@ def client():
     shutil.rmtree(STORAGE, ignore_errors=True)
     files_service.ensure_dirs()
     embedder.set_embedder(None)
+    ratelimit.reset()
     with SessionLocal() as db:
         seed_core(db)
+        seed_roster(db)
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
 

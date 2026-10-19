@@ -24,3 +24,9 @@ The authoring sandbox had no network, so FastAPI, SQLAlchemy, bcrypt, PyMuPDF, s
 | Automated tests (≈45 API tests + client tests) | Yes | **No** | run `pytest` |
 | Performance measurements | No | No | not measured |
 | Gaps by design | | | no admin duplicate override; companion files not downloadable; no TLS; client idle timer relies on server expiry; "Department Research" for deans reuses the repository page (no auto department filter) |
+
+## Added later: guest access and student registration
+| Requirement | Written | Verified | Notes |
+|---|---|---|---|
+| Guest (no-login) Repository + Semantic Search on app open | Yes | **No** | `/public/*`, client guest mode; tests in `test_guest_register.py` |
+| Student self-registration with roster check, one account per student | Yes | **No** | roster table + CSV import + admin page; unique `users.student_number` |

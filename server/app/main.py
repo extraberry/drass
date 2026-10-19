@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.exc import OperationalError
-from .api import routes_core, routes_more
+from .api import routes_core, routes_more, routes_public
 from .core.config import get_settings
 from .db import SessionLocal
 from .domain.errors import DrassError
@@ -43,6 +43,7 @@ app = FastAPI(title="DRASS API", lifespan=lifespan,
               redoc_url=None, openapi_url="/openapi.json" if settings.enable_docs else None)
 app.include_router(routes_core.router)
 app.include_router(routes_more.router)
+app.include_router(routes_public.router)
 
 
 def _err(status: int, code: str, message: str, fields=None) -> JSONResponse:

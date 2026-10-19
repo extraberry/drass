@@ -63,7 +63,7 @@ def get_work_for_user(db: Session, user: User, work_id: int, audit_denial: bool 
     w = visible_or_none(db, user, work_id)
     if w is None:
         exists_ = db.get(ResearchWork, work_id) is not None
-        if exists_ and audit_denial:
+        if exists_ and audit_denial and user.user_id is not None:
             audit(db, user.user_id, "PERMISSION_DENIED", "work", work_id, "DENIED", "record not accessible")
             db.commit()
         if exists_:

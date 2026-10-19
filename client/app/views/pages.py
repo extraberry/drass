@@ -499,3 +499,42 @@ class ReportsPage(Page):
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", f"{k}.csv", "CSV (*.csv)")
         if path:
             run_async(lambda: self.api.report_csv(k, p), lambda data: (open(path, "wb").write(data), info(self, "Report exported.")), lambda e: show_error(self, e))
+
+
+class RosterPage(Page):
+    title = "Student Roster"
+
+    def __init__(self, api, main=None):
+        super().__init__(api, main)
+        self.root.addWidget(h1("Student Roster"))
+        self.root.addWidget(muted("Only students on this list can create an account. Import the registrar's CSV (columns: student_number, last_name, first_name, department optional)."))
+        self.q = QLineEdit(); self.q.setPlaceholderText("Search ID or name"); self.q.returnPressed.connect(self.refresh)
+        self.root.addLayout(hbox(self.q, button("Search", slot=self.refresh), button("Add student", "primary", self.add), button("Import CSV…", slot=self.import_csv)))
+        self.table = DataTable(); self.root.addWidget(self.table)
+        self.info = muted(""); self.root.addWidget(self.info)
+
+    def refresh(self):
+        q = self.q.text().strip()
+        run_async(lambda: self.api.get("/admin/roster", q=q, page_size=200), self._fill, lambda e: show_error(self, e))
+
+    def _fill(self, r):
+        self.table.set_data(["Student ID", "Last name", "First name", "Account"], [[i["student_number"], i["last_name"], i["first_name"], i["account"]] for i in r["items"]])
+        self.info.setText(f"{r['total']} student(s) on the roster")
+
+    def add(self):
+        sn, ok = QInputDialog.getText(self, "Add student", "Student ID:")
+        if not (ok and sn.strip()): return
+        last, ok = QInputDialog.getText(self, "Add student", "Last name:")
+        if not (ok and last.strip()): return
+        first, ok = QInputDialog.getText(self, "Add student", "First name:")
+        if not (ok and first.strip()): return
+        run_async(lambda: self.api.post("/admin/roster", {"student_number": sn.strip(), "last_name": last.strip(), "first_name": first.strip()}),
+                  lambda _: self.refresh(), lambda e: show_error(self, e))
+
+    def import_csv(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import roster CSV", "", "CSV (*.csv)")
+        if not path: return
+        with open(path, "r", encoding="utf-8-sig") as f: text = f.read()
+        run_async(lambda: self.api.post("/admin/roster/import", {"csv": text}),
+                  lambda r: (info(self, f"Added {r['added']}, skipped {r['skipped']} existing." + (f"\nProblems: {'; '.join(r['errors'][:5])}" if r["errors"] else "")), self.refresh()),
+                  lambda e: show_error(self, e))

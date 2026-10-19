@@ -38,7 +38,7 @@ class ResearchDetailDialog(QDialog):
         self.lay.addLayout(form)
         self.lay.addWidget(h2("Abstract"))
         ab = QPlainTextEdit(w["abstract"]); ab.setReadOnly(True); ab.setMaximumHeight(160); self.lay.addWidget(ab)
-        row = [button("Read Research", "primary", self.read)]
+        row = [button("Read Research" if self.api.token else "Sign in to read", "primary", self.read)]
         if self.api.role in LIB_ROLES and w["status"] == "ARCHIVED":
             row.append(button("Edit Metadata…", slot=self.edit_meta))
         self.lay.addLayout(hbox(*row))
@@ -55,6 +55,8 @@ class ResearchDetailDialog(QDialog):
         self.rel_msg.setText(r["message"] or "Double-click a title to open it.")
 
     def read(self):
+        if not self.api.token:
+            return info(self, "Please sign in to read the manuscript. Guests can browse and search the repository only.")
         ReaderDialog(self.api, self.work_id, self.work["title"], self).exec()
 
     def edit_meta(self):

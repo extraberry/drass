@@ -18,6 +18,7 @@ PERMISSIONS: dict[str, set[Role]] = {
     "settings.manage": {R.ADMIN},
     "audit.read": {R.ADMIN},
     "indexing.manage": {R.ADMIN},
+    "roster.manage": {R.ADMIN},
     "indexing.view": {R.ADMIN, R.HEAD_LIBRARIAN, R.LIBRARY_STAFF},
     "activity.read": {R.ADMIN},
     "reports.any": {R.STUDENT, R.ADVISER, R.PANELIST, R.DEAN, R.LIBRARY_STAFF, R.HEAD_LIBRARIAN, R.ADMIN},

@@ -39,3 +39,8 @@ Python 3.11/3.12, MySQL 8.x, ~3 GB disk (PyTorch + model). Internet is needed **
 
 ## Campus deployment
 One server PC (FastAPI + MySQL + storage + model), many clients over LAN with `DRASS_SERVER_URL=http://<server-ip>:8000`. Open TCP 8000 on the server's firewall for the LAN only. Set `ENABLE_DOCS=false`. Backups: `scripts/backup_database.py` plus copying `storage/` — the institution is responsible for storage, backups, power and infrastructure. No data leaves the campus; no external API is used.
+
+## Upgrading an existing database (guest access + student sign-up)
+1. `.venv\Scripts\python.exe scripts\setup_db.py` — creates the new `student_roster` table and adds demo roster rows (existing data is kept).
+2. In MySQL Workbench run: `ALTER TABLE drass.users ADD UNIQUE INDEX uq_users_student_number (student_number);` (enforces one account per student).
+3. Restart the server and the client. The client now opens in Guest mode.

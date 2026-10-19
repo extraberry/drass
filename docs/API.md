@@ -7,3 +7,6 @@ Repository: `GET /repository` (filters program_id, department_id, year, adviser_
 Search: `POST /search/semantic`, `GET /recommendations/{id}`. Reader: `GET /reader/{id}/info`, `GET /reader/{id}/pages/{n}?scale=`.
 Reports: `GET /reports/{submissions|approvals|rejections|pending-reviews|archived|user-activity|system-activity}?format=csv`.
 Admin: `GET|POST /users`, `PATCH /users/{id}`, `POST /users/{id}/activate|deactivate|reset-password`, `GET|PUT /admin/settings`, `GET|POST|PATCH /admin/lookups/{departments|programs|categories}`, `GET /admin/roles`, `GET /admin/indexing`, `POST /admin/indexing/rebuild`, `GET /audit-logs`, `GET /activity-logs`. Interactive docs at `/docs` when `ENABLE_DOCS=true`.
+
+**Public (no login):** `GET /public/lookups`, `GET /public/repository`, `GET /public/repository/{id}`, `POST /public/search/semantic`, `GET /public/recommendations/{id}` — ARCHIVED records only, rate-limited. `POST /auth/register-student` (student_number, last_name, username, email, password).
+**Roster (ADMIN):** `GET|POST /admin/roster`, `POST /admin/roster/import` (`{"csv": "student_number,last_name,first_name,department\n..."}`).

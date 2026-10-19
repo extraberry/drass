@@ -25,6 +25,8 @@ def create_user(db: Session, actor: User, d: dict) -> User:
     role = _role(db, d["role"])
     if db.scalar(select(User).where(or_(User.username == d["username"], User.email == d["email"]))):
         raise Conflict("An account with that username or email already exists.")
+    if d.get("student_number") and db.scalar(select(User).where(User.student_number == d["student_number"])):
+        raise Conflict("An account already exists for this student number.")
     u = User(username=d["username"], password_hash=hash_password(d["password"]), role_id=role.role_id,
              full_name=d["full_name"], email=d["email"], student_number=d.get("student_number"),
              department_id=d.get("department_id"))

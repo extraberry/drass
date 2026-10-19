@@ -10,7 +10,7 @@ from .core.timeutil import utcnow
 from .db import Base, SessionLocal, engine
 from .domain.enums import FileType, Role
 from .domain.file_validation import new_stored_name
-from .models import (Department, Program, ResearchCategory, ResearchWork, Revision, Role as RoleModel, StatusHistory, User,
+from .models import (StudentRoster, Department, Program, ResearchCategory, ResearchWork, Revision, Role as RoleModel, StatusHistory, User,
                      FileRecord)
 from .services import files_service, index_service
 from .services.submission_service import _apply
@@ -122,6 +122,22 @@ def seed_core(db: Session) -> None:
     db.commit()
 
 
+ROSTER = [("2022-0001", "Ramos", "Sofia"), ("2022-0002", "Garcia", "Miguel"), ("2023-0101", "Reyes", "Carla"),
+          ("2023-0102", "Tan", "Daniel"), ("2023-0103", "Lim", "Erika"), ("2023-0104", "Santos", "Paolo")]
+
+
+def seed_roster(db: Session) -> int:
+    """Idempotent: adds missing demo roster rows (first three are claimed by the demo students/none)."""
+    dept = db.scalar(select(Department).order_by(Department.department_id))
+    have = set(db.scalars(select(StudentRoster.student_number)).all())
+    n = 0
+    for sn, last, first in ROSTER:
+        if sn not in have:
+            db.add(StudentRoster(student_number=sn, last_name=last, first_name=first, department_id=dept.department_id if dept else None)); n += 1
+    db.commit()
+    return n
+
+
 def seed_demo(db: Session) -> int:
     if db.scalar(select(ResearchWork).where(ResearchWork.reference_no.like("DEMO-%"))) is not None:
         return 0
@@ -162,6 +178,7 @@ def main() -> None:
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         seed_core(db)
+        seed_roster(db)
         n = 0 if "--no-demo" in sys.argv else seed_demo(db)
     print(f"Seed complete. Demo research records created: {n}. See docs/DEMO_ACCOUNTS.md for logins.")
 

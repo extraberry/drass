@@ -104,3 +104,22 @@ class MetadataPatchIn(BaseModel):
     abstract: Optional[str] = Field(None, min_length=1, max_length=20000)
     keywords: Optional[list[str]] = Field(None, max_length=15)
     category_id: Optional[int] = None
+
+
+class StudentRegisterIn(BaseModel):
+    student_number: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9-]+$")
+    last_name: str = Field(min_length=1, max_length=100)
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    email: str = Field(max_length=150, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(max_length=200)
+
+
+class RosterIn(BaseModel):
+    student_number: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9-]+$")
+    last_name: str = Field(min_length=1, max_length=100)
+    first_name: str = Field(min_length=1, max_length=100)
+    department_id: Optional[int] = None
+
+
+class RosterImportIn(BaseModel):
+    csv: str = Field(max_length=2_000_000)
