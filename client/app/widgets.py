@@ -1,4 +1,5 @@
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 from .api import ApiError
@@ -99,7 +100,7 @@ class Page(QWidget):
         self.setObjectName("page")
         self.api, self.main = api, main
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(20, 16, 20, 16)
+        self.root.setContentsMargins(32, 14, 32, 16)
 
     def refresh(self) -> None:
         pass
@@ -111,12 +112,12 @@ class StatCard(QFrame):
 
     def __init__(self, title: str, value, clickable: bool = True):
         super().__init__()
-        self.setObjectName("statcard"); self.setMinimumHeight(100); self.clickable = clickable
-        lay = QVBoxLayout(self); lay.setContentsMargins(18, 12, 18, 12)
-        v = QLabel(str(value)); v.setStyleSheet("font-size: 24pt;")
+        self.setObjectName("statcard"); self.setFixedHeight(67); self.clickable = clickable
+        lay = QVBoxLayout(self); lay.setContentsMargins(14, 6, 14, 6); lay.setSpacing(0)
+        v = QLabel(str(value)); v.setStyleSheet("font-size: 17pt;")
         t = QLabel(title); t.setObjectName("muted"); t.setWordWrap(True)
         lay.addWidget(v); lay.addWidget(t)
-        sh = QGraphicsDropShadowEffect(self); sh.setBlurRadius(18); sh.setOffset(0, 4); sh.setColor(Qt.GlobalColor.gray)
+        sh = QGraphicsDropShadowEffect(self); sh.setBlurRadius(14); sh.setOffset(0, 3); sh.setColor(QColor(15, 40, 84, 70))
         self.setGraphicsEffect(sh)
         if clickable:
             self.setCursor(Qt.PointingHandCursor); self.setFocusPolicy(Qt.StrongFocus); self.setToolTip("Click to open")

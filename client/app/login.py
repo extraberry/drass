@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import QApplication, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from . import style
 from .brand import APP_NAME, INSTITUTION, TAGLINE, res
@@ -19,7 +19,9 @@ class LoginWindow(QWidget):
         top = QHBoxLayout(); logo = QLabel(); pm = QPixmap(res("seal.png"))
         if not pm.isNull():
             logo.setPixmap(pm.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)); top.addWidget(logo)
-        top.addWidget(h1(APP_NAME)); top.addStretch(1)
+        title = QLabel(APP_NAME); title.setObjectName("wordmark")        # bold + condensed (tight letter spacing)
+        f = title.font(); f.setLetterSpacing(QFont.PercentageSpacing, 88); title.setFont(f)
+        top.addWidget(title); top.addStretch(1)
         self.theme_btn = button(style.theme_button_text(), slot=self.toggle_theme); top.addWidget(self.theme_btn)
         lay.addLayout(top)
         lay.addWidget(muted(TAGLINE)); lay.addWidget(muted(INSTITUTION))

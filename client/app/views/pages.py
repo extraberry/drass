@@ -55,7 +55,7 @@ class DashboardPage(Page):
             if key == "pending_reviews": return (["Review Queue", "Assigned Reviews", "Pending Approvals", "Archive Approval Queue"], {})
             if key == "reviewed_total": return (["Review History"], {})
             return None
-        g = QGridLayout(); g.setHorizontalSpacing(20); g.setVerticalSpacing(20)
+        g = QGridLayout(); g.setHorizontalSpacing(20); g.setVerticalSpacing(14); g.setContentsMargins(40, 14, 40, 0); g.setAlignment(Qt.AlignTop)
         i = 0
         for k, lbl in labels.items():
             if k not in d: continue

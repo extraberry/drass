@@ -26,15 +26,16 @@ class UserDialog(QDialog):
         for d in lk["departments"]: self.dept.addItem(d["name"], d["id"])
         if self.user:
             u = self.user
-            self.username.setText(u["username"]); self.username.setEnabled(False); self.full_name.setText(u["full_name"])
+            self.username.setText(u["username"]); self.full_name.setText(u["full_name"])
             self.email.setText(u["email"]); self.sn.setText(u["student_number"] or "")
             self.role.setCurrentText(u["role"]); self.dept.setCurrentIndex(max(self.dept.findData(u["department_id"]), 0))
 
     def save(self):
-        body = {"full_name": self.full_name.text().strip(), "email": self.email.text().strip(), "role": self.role.currentText(),
+        body = {"username": self.username.text().strip(), "full_name": self.full_name.text().strip(), "email": self.email.text().strip(), "role": self.role.currentText(),
                 "student_number": self.sn.text().strip() or None, "department_id": self.dept.currentData()}
         def call():
             if self.user:
+                if body["username"] == self.user["username"]: body.pop("username")
                 return self.api.patch(f"/users/{self.user['user_id']}", body)
             return self.api.post("/users", {**body, "username": self.username.text().strip(), "password": self.password.text()})
         def fail(e):

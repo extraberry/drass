@@ -25,18 +25,19 @@ QDialog, QMessageBox {{ background: {t['dialog']}; }}
 QWidget#login {{ background: {t['dialog']}; }}
 QWidget#page {{ background: transparent; }}
 QWidget#content {{ background: {t['bg']}; }}
-QLabel#h1 {{ font-size: 22pt; font-weight: 400; color: {t['text']}; }}
+QLabel#h1 {{ font-size: 19pt; font-weight: 400; color: {t['text']}; }}
+QLabel#wordmark {{ font-size: 23pt; font-weight: 700; color: {t['text']}; }}
 QLabel#h2 {{ font-size: 12pt; font-weight: 600; color: {t['text']}; }}
 QLabel#muted {{ color: {t['muted']}; }}
 QLabel#error {{ color: {t['danger']}; }}
 QLabel#clock {{ color: {t['muted']}; font-size: 9pt; }}
 QFrame#header {{ background: {t['header']}; border-bottom-left-radius: 22px; border-bottom-right-radius: 22px; }}
 QFrame#header QLabel {{ color: #FFFFFF; }}
-QFrame#header QPushButton {{ background: #FFFFFF; color: #0F2854; border: none; border-radius: 8px; padding: 8px 14px; }}
+QFrame#header QPushButton {{ background: #FFFFFF; color: #0F2854; border: none; border-radius: 6px; padding: 4px 10px; }}
 QFrame#header QPushButton:hover {{ background: #E6ECF8; }}
 QFrame#sidebar {{ background: {t['panel']}; border: none; }}
 QListWidget#nav {{ background: transparent; border: none; font-size: 11.5pt; outline: 0; }}
-QListWidget#nav::item {{ padding: 11px 16px; color: {t['text']}; border-radius: 6px; margin: 1px 6px; }}
+QListWidget#nav::item {{ padding: 7px 20px; color: {t['text']}; border-radius: 8px; margin: 0; }}
 QListWidget#nav::item:selected {{ background: {t['bg']}; color: {t['text']}; }}
 QListWidget#nav::item:hover {{ background: {t['nav_hover']}; }}
 QFrame#card, QFrame#statcard {{ background: {t['panel']}; border: none; border-radius: 8px; }}

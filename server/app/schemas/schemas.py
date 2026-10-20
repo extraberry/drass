@@ -66,6 +66,7 @@ class UserCreateIn(BaseModel):
 
 
 class UserPatchIn(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     role: Optional[str] = None
     full_name: Optional[str] = Field(None, max_length=150)
     email: Optional[str] = Field(None, max_length=150, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")

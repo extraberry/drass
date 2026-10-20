@@ -1,6 +1,6 @@
 from PySide6.QtCore import QDateTime, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QPushButton
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget,
                                QVBoxLayout, QWidget)
 from . import style
@@ -42,8 +42,8 @@ class MainWindow(QMainWindow):
         self.api = api
         self.setWindowTitle(f"{APP_NAME} — {INSTITUTION}"); self.resize(1280, 820)
         root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
-        header = QFrame(); header.setObjectName("header"); header.setFixedHeight(88)
-        hl = QHBoxLayout(header); hl.setContentsMargins(140, 0, 20, 0); hl.setSpacing(10)
+        header = QFrame(); header.setObjectName("header"); header.setFixedHeight(86)
+        hl = QHBoxLayout(header); hl.setContentsMargins(128, 0, 31, 0); hl.setSpacing(3)
         t = QLabel(f"<b>{APP_NAME} - {TAGLINE}</b>"); t.setStyleSheet("font-size: 12.5pt;")
         sub = QLabel(f"<b>{INSTITUTION}</b>")
         left = QVBoxLayout(); left.setSpacing(2); left.addWidget(t); left.addWidget(sub)
@@ -51,25 +51,30 @@ class MainWindow(QMainWindow):
         u = api.user
         self.guest = u["role"] == "GUEST"
         who = "Guest visitor - browse and search only" if self.guest else f"{u['full_name']} - {u['role'].replace('_', ' ').title()}"
-        hl.addWidget(QLabel(who))
+        who_lbl = QLabel(who); who_lbl.setContentsMargins(0, 0, 8, 0); hl.addWidget(who_lbl)
         self.bell = button("0", slot=self.open_notifications); self.bell.setToolTip("Notifications")
-        self.bell.setIcon(QIcon(res("bell.svg"))); self.bell.setIconSize(QSize(20, 20)); hl.addWidget(self.bell)
-        self.theme_btn = button(style.theme_button_text(), slot=self.toggle_theme); self.theme_btn.setToolTip("Switch light / dark mode"); hl.addWidget(self.theme_btn)
+        self.bell.setIcon(QIcon(res("bell.svg"))); self.bell.setIconSize(QSize(18, 18)); self.bell.setFixedHeight(32); hl.addWidget(self.bell)
+        self.theme_btn = button("", slot=self.toggle_theme); self.theme_btn.setToolTip("Switch light / dark mode"); self.theme_btn.setIconSize(QSize(18, 18))
+        self.theme_btn.setFixedSize(32, 32); self._theme_icon(); hl.addWidget(self.theme_btn)
         if self.guest:
             self.bell.hide()
             hl.addWidget(button("Create student account", slot=self.register))
             hl.addWidget(button("Sign in", slot=self.sign_in_requested.emit))
         else:
-            hl.addWidget(button("Log out", slot=lambda: self.logout()))
+            lo = button("Log out", slot=lambda: self.logout()); lo.setFixedHeight(32); hl.addWidget(lo)
+        for i in range(hl.count()):
+            w_ = hl.itemAt(i).widget()
+            if isinstance(w_, QPushButton): w_.setFixedHeight(32)
+        hl.addSpacing(24)
         self.seal = QLabel(); spm = QPixmap(res("seal.png"))
         if not spm.isNull():
-            self.seal.setPixmap(spm.scaled(70, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)); hl.addWidget(self.seal)
+            self.seal.setPixmap(spm.scaled(69, 69, Qt.KeepAspectRatio, Qt.SmoothTransformation)); hl.addWidget(self.seal)
         outer.addWidget(header)
         body = QHBoxLayout(); body.setSpacing(0); outer.addLayout(body, 1)
-        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(255); sl = QVBoxLayout(side); sl.setContentsMargins(0, 58, 0, 8)
+        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(255); sl = QVBoxLayout(side); sl.setContentsMargins(0, 42, 0, 8)
         self.nav = QListWidget(); self.nav.setObjectName("nav"); sl.addWidget(self.nav); body.addWidget(side)
         content = QWidget(); content.setObjectName("content"); right = QVBoxLayout(content); right.setContentsMargins(0, 0, 0, 0); body.addWidget(content, 1)
-        self.crumb = muted(""); self.crumb.setContentsMargins(28, 12, 20, 0); right.addWidget(self.crumb)
+        self.crumb = muted(""); self.crumb.setContentsMargins(32, 14, 20, 0); right.addWidget(self.crumb)
         self.stack = QStackedWidget(); right.addWidget(self.stack, 1)
         self.clock = QLabel(""); self.clock.setObjectName("clock"); self.clock.setAlignment(Qt.AlignRight); self.clock.setContentsMargins(0, 0, 20, 8); right.addWidget(self.clock)
         self.items = _nav(u["role"], api); self.pages = {}
@@ -80,7 +85,8 @@ class MainWindow(QMainWindow):
         if pm.isNull():
             self.ribbon.hide()
         else:
-            self.ribbon.setPixmap(pm.scaled(80, 106, Qt.KeepAspectRatio, Qt.SmoothTransformation)); self.ribbon.adjustSize(); self.ribbon.move(40, 0); self.ribbon.raise_()
+            self.ribbon.setPixmap(pm.scaled(66, 85, Qt.KeepAspectRatio, Qt.SmoothTransformation)); self.ribbon.adjustSize(); self.ribbon.move(33, 0); self.ribbon.raise_()
+            sh = QGraphicsDropShadowEffect(self.ribbon); sh.setBlurRadius(10); sh.setOffset(0, 2); sh.setColor(QColor(0, 0, 0, 110)); self.ribbon.setGraphicsEffect(sh)
         self.nav.setCurrentRow(0)
         self.timer = QTimer(self); self.timer.setInterval(60_000); self.timer.timeout.connect(self.poll); self.timer.start(); self.poll()
         self.tick = QTimer(self); self.tick.setInterval(1000); self.tick.timeout.connect(self._clock); self.tick.start(); self._clock()
@@ -125,7 +131,10 @@ class MainWindow(QMainWindow):
     def set_unread(self, n): self.bell.setText(str(n))
 
     def toggle_theme(self):
-        style.toggle_theme(QApplication.instance()); self.theme_btn.setText(style.theme_button_text())
+        style.toggle_theme(QApplication.instance()); self._theme_icon()
+
+    def _theme_icon(self):
+        self.theme_btn.setIcon(QIcon(res("sun.svg" if style.current_theme() == "dark" else "moon.svg")))
 
     def register(self):
         from .dialogs.register_dialog import RegisterDialog

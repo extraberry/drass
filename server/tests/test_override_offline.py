@@ -118,3 +118,24 @@ def test_admin_override_rejects_non_review_statuses_and_stale_version(client):
     assert _override(client, wid, "archive").json()["status"] == "ARCHIVED"
     assert _override(client, wid, "archive").status_code == 409          # already archived
     assert _override(client, wid, "bogus").status_code in (409, 422)
+
+
+# ---------------- admin renames a username ----------------
+def test_admin_can_change_username(client):
+    ah = login(client, "admin")
+    uid = next(u["user_id"] for u in client.get("/users?q=student1", headers=ah).json()["items"] if u["username"] == "student1")
+    old_h = login(client, "student1")
+    assert client.patch(f"/users/{uid}", headers=ah, json={"username": "student1.new"}).status_code == 200
+    assert client.post("/auth/login", json={"username": "student1", "password": DEMO_PASSWORD}).status_code in (401, 403)
+    assert client.get("/auth/me", headers=old_h).status_code == 401           # old session was revoked
+    login(client, "student1.new")
+    assert "USERNAME_CHANGED" in _actions(client)
+
+
+def test_username_change_rejects_duplicates_and_non_admin(client):
+    ah = login(client, "admin")
+    uid = next(u["user_id"] for u in client.get("/users?q=student1", headers=ah).json()["items"] if u["username"] == "student1")
+    assert client.patch(f"/users/{uid}", headers=ah, json={"username": "student2"}).status_code == 409
+    assert client.patch(f"/users/{uid}", headers=ah, json={"username": "ab"}).status_code == 422
+    assert client.patch(f"/users/{uid}", headers=ah, json={"username": "bad name!"}).status_code == 422
+    assert client.patch(f"/users/{uid}", headers=login(client, "student2"), json={"username": "hacker"}).status_code == 403

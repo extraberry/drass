@@ -46,6 +46,15 @@ def patch_user(db: Session, actor: User, user_id: int, d: dict) -> User:
         old = u.role.role_name
         u.role_id = _role(db, d["role"]).role_id
         audit(db, actor.user_id, "ROLE_CHANGED", "user", u.user_id, details=f"{old} -> {d['role']}")
+    new_name = (d.get("username") or "").strip()
+    if new_name and new_name != u.username:
+        if db.scalar(select(User).where(func.lower(User.username) == new_name.lower(), User.user_id != u.user_id)):
+            raise Conflict("That username is already taken.")
+        old = u.username
+        u.username = new_name
+        audit(db, actor.user_id, "USERNAME_CHANGED", "user", u.user_id, details=f"{old} -> {new_name}")
+        if u.user_id != actor.user_id:
+            auth_service.revoke_all_sessions(db, u.user_id)       # they must sign in again with the new username
     for f in ("full_name", "email", "student_number", "department_id"):
         if d.get(f) is not None:
             if f == "email" and db.scalar(select(User).where(User.email == d[f], User.user_id != u.user_id)):
