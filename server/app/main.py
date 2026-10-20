@@ -1,4 +1,4 @@
-"""DRASS FastAPI application."""
+"""ResearchVault FastAPI application."""
 import logging
 import threading
 import time
@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.exc import OperationalError
-from .api import routes_core, routes_more, routes_public
+from .api import routes_core, routes_more, routes_public, routes_integration
 from .core.config import get_settings
 from .db import SessionLocal
 from .domain.errors import DrassError
@@ -38,12 +38,13 @@ async def lifespan(app: FastAPI):
     stop.set()
 
 
-app = FastAPI(title="DRASS API", lifespan=lifespan,
+app = FastAPI(title="ResearchVault API", lifespan=lifespan,
               docs_url="/docs" if settings.enable_docs else None,
               redoc_url=None, openapi_url="/openapi.json" if settings.enable_docs else None)
 app.include_router(routes_core.router)
 app.include_router(routes_more.router)
 app.include_router(routes_public.router)
+app.include_router(routes_integration.router)
 
 
 def _err(status: int, code: str, message: str, fields=None) -> JSONResponse:

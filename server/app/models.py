@@ -244,3 +244,18 @@ class StudentRoster(Base):
     department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("departments.department_id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ApiKey(Base):
+    """Credential for an external system (never a person). Only the SHA-256 hash is stored."""
+    __tablename__ = "api_keys"
+    key_id: Mapped[int] = mapped_column(Integer, **PK)
+    name: Mapped[str] = mapped_column(String(100))
+    key_prefix: Mapped[str] = mapped_column(String(16), index=True)      # shown in lists to identify the key
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    scopes: Mapped[str] = mapped_column(String(200))                       # comma separated: roster:write,catalog:read
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")      # ACTIVE / REVOKED
+    created_by: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

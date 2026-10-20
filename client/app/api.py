@@ -1,4 +1,4 @@
-"""HTTP client for the DRASS server. The desktop client never talks to MySQL."""
+"""HTTP client for the ResearchVault server. The desktop client never talks to MySQL."""
 import os
 from typing import Callable, Optional
 import requests
@@ -50,7 +50,7 @@ class ApiClient:
         try:
             r = self.http.request(method, self.base + path, **kw)
         except requests.exceptions.ConnectionError:
-            raise ApiError("SERVER_UNREACHABLE", "Cannot reach the DRASS server. Check that it is running and that you are on the campus network.")
+            raise ApiError("SERVER_UNREACHABLE", "Cannot reach the ResearchVault server. Check that it is running and that you are on the campus network.")
         except requests.exceptions.Timeout:
             raise ApiError("TIMEOUT", "The server took too long to respond. Please try again.")
         if r.status_code >= 400:

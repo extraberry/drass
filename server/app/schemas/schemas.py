@@ -31,6 +31,8 @@ class ResubmitIn(BaseModel):
 class ReviewActionIn(BaseModel):
     comments: str = Field("", max_length=5000)
     expected_version: Optional[int] = None
+    panel_offline: bool = False                                   # adviser approve only: panel already approved outside the system
+    panel_offline_reference: str = Field("", max_length=300)      # e.g. letter date / reference no. (required when panel_offline)
 
 
 class PanelIn(BaseModel):
@@ -123,3 +125,19 @@ class RosterIn(BaseModel):
 
 class RosterImportIn(BaseModel):
     csv: str = Field(max_length=2_000_000)
+
+
+class ApiKeyCreateIn(BaseModel):
+    name: str = Field(min_length=3, max_length=100)
+    scopes: list[str] = Field(min_length=1, max_length=5)
+    expires_days: Optional[int] = Field(None, ge=1, le=3650)
+
+
+class RosterSyncIn(BaseModel):
+    students: list[dict] = Field(max_length=5000)
+
+
+class OverrideIn(BaseModel):
+    mode: str = Field(pattern="^(next|archive)$")
+    reason: str = Field(min_length=5, max_length=2000)
+    expected_version: Optional[int] = None

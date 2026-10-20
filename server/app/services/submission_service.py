@@ -83,7 +83,7 @@ def create_draft(db: Session, user: User, data: dict) -> ResearchWork:
     w = ResearchWork(submitted_by=user.user_id, current_status=Status.DRAFT.value,
                      title=(data.get("title") or "").strip(), abstract="")
     db.add(w); db.flush()
-    w.reference_no = f"DRASS-{utcnow().year}-{w.work_id:05d}"
+    w.reference_no = f"RV-{utcnow().year}-{w.work_id:05d}"
     data = {**data}
     if not data.get("authors"):
         data["authors"] = [{"name": user.full_name, "student_number": user.student_number}]

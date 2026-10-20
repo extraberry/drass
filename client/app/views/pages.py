@@ -1,12 +1,12 @@
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QComboBox, QDateEdit, QFileDialog, QFormLayout, QGridLayout, QInputDialog, QLabel, QLineEdit,
-                               QPlainTextEdit, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QRadioButton, QVBoxLayout, QWidget)
 from PySide6.QtCore import QDate, Qt
 from ..dialogs.research_detail import ResearchDetailDialog
 from ..dialogs.review_dialog import ReviewDialog
 from ..dialogs.submission_form import SubmissionForm
 from ..dialogs.user_dialog import UserDialog
-from ..widgets import (DataTable, Page, button, card, confirm, h1, h2, hbox, info, muted, show_error, status_text)
+from ..widgets import (StatCard, DataTable, Page, button, card, confirm, h1, h2, hbox, info, muted, show_error, status_text)
 from ..worker import run_async
 from .common import FilterBar
 
@@ -32,7 +32,6 @@ class DashboardPage(Page):
         u = self.api.user
         self.root.addWidget(h1(f"Welcome, {u['full_name']}"))
         self.root.addWidget(muted("Digital Research Archiving System with Semantic Search — Mary the Queen College of Quezon City, Inc."))
-        stats = []
         labels = {"pending_reviews": "Pending reviews", "reviewed_total": "Reviews completed", "advisees": "Advisees",
                   "department_archived": "Archived research in your department", "archived": "Archived research",
                   "indexing_failures": "Indexing failures", "unread_notifications": "Unread notifications",
@@ -40,10 +39,32 @@ class DashboardPage(Page):
                   "pending_adviser": "Pending adviser reviews", "pending_panel": "Pending panel reviews",
                   "pending_dean": "Pending dean reviews", "pending_librarian": "Pending librarian reviews", "rejected": "Rejected works",
                   "active_users": "Active users", "inactive_users": "Deactivated users", "failed_logins": "Failed login events"}
+        admin = self.api.role == "ADMIN"
+        by_status = {"pending_submissions": "SUBMITTED", "pending_adviser": "UNDER_ADVISER_REVIEW", "pending_panel": "UNDER_PANEL_REVIEW",
+                     "pending_dean": "UNDER_DEAN_REVIEW", "pending_librarian": "UNDER_HEAD_LIBRARIAN_REVIEW", "rejected": "REJECTED", "archived": "ARCHIVED"}
+        def target(key):
+            if admin and key == "total_works": return (["Repository Management"], {})
+            if admin and key in by_status: return (["Repository Management"], {"status": by_status[key]})
+            if key == "archived": return (["Repository"], {})
+            if key == "department_archived": return (["Department Research"], {})
+            if key == "active_users": return (["Users"], {"status": "ACTIVE"})
+            if key == "inactive_users": return (["Users"], {"status": "INACTIVE"})
+            if key == "failed_logins": return (["Audit Logs"], {"action": "LOGIN_FAILED"})
+            if key == "indexing_failures": return (["Indexing Monitor"], {})
+            if key == "unread_notifications": return (["Notifications"], {})
+            if key == "pending_reviews": return (["Review Queue", "Assigned Reviews", "Pending Approvals", "Archive Approval Queue"], {})
+            if key == "reviewed_total": return (["Review History"], {})
+            return None
+        g = QGridLayout(); g.setHorizontalSpacing(20); g.setVerticalSpacing(20)
+        i = 0
         for k, lbl in labels.items():
-            if k in d: stats.append(_stat(lbl, d[k]))
-        g = QGridLayout()
-        for i, c in enumerate(stats): g.addWidget(c, i // 4, i % 4)
+            if k not in d: continue
+            tg = target(k)
+            card = StatCard(lbl, d[k], clickable=tg is not None)
+            if tg and self.main:
+                card.clicked.connect(lambda labels_=tg[0], preset=tg[1]: self.main.navigate_first(labels_, preset))
+            g.addWidget(card, i // 4, i % 4); i += 1
+        for c in range(4): g.setColumnStretch(c, 1)
         w = QWidget(); w.setLayout(g); self.root.addWidget(w)
         if "submissions" in d:
             self.root.addWidget(h2("My submissions"))
@@ -147,6 +168,16 @@ class RepositoryPage(Page):
     def apply(self): self.goto(1)
     def clear(self): self.filters.clear(); self.goto(1)
     def refresh(self): self.goto(self.page_no)
+
+    def apply_preset(self, preset):
+        """Dashboard box shortcut, e.g. {"status": "UNDER_PANEL_REVIEW"}; an empty preset clears an earlier shortcut."""
+        st = (preset or {}).get("status")
+        if st:
+            self._preset_on = True; self.filters.set_status(st); self.goto(1)
+        elif getattr(self, "_preset_on", False):
+            self._preset_on = False; self.filters.set_status(None); self.goto(1)
+        else:
+            self.refresh()
 
     def goto(self, n):
         if n < 1: return
@@ -280,6 +311,14 @@ class UsersPage(Page):
         self.table = DataTable(); self.root.addWidget(self.table); self.users = {}
         run_async(lambda: self.api.get("/lookups")["roles"], lambda rs: [self.role.addItem(r, r) for r in rs], None)
 
+    def apply_preset(self, preset):
+        st = (preset or {}).get("status")
+        if st:
+            self._preset_on = True; i = self.status.findData(st); self.status.setCurrentIndex(max(i, 0))
+        elif getattr(self, "_preset_on", False):
+            self._preset_on = False; self.status.setCurrentIndex(0)
+        self.refresh()
+
     def refresh(self):
         run_async(lambda: self.api.get("/users", q=self.q.text().strip(), role=self.role.currentData(), status=self.status.currentData(), page_size=200), self._fill, lambda e: show_error(self, e))
 
@@ -380,7 +419,8 @@ class LookupsPage(Page):
 
 SETTING_LABELS = {"min_password_length": "Minimum password length", "failed_login_limit": "Failed-login limit", "lockout_minutes": "Lockout duration (minutes)",
                   "idle_timeout_minutes": "Session idle timeout (minutes)", "max_manuscript_mb": "Max manuscript size (MB)", "max_companion_mb": "Max companion file size (MB)",
-                  "semantic_threshold": "Semantic threshold (0–1)", "recommendation_count": "Recommendations shown", "log_search_queries": "Log search queries (true/false)"}
+                  "semantic_threshold": "Semantic threshold (0–1)", "recommendation_count": "Recommendations shown", "log_search_queries": "Log search queries (true/false)",
+                  "offline_panel_skips_dean": "Panel approved offline goes straight to Head Librarian, skipping Dean (true/false)"}
 
 
 class SettingsPage(Page):
@@ -442,13 +482,24 @@ class LogsPage(Page):
         self.table = DataTable(); self.root.addWidget(self.table)
         self.prev, self.next = button("◀ Newer", slot=lambda: self.go(self.n - 1)), button("Older ▶", slot=lambda: self.go(self.n + 1))
         self.lbl = muted(""); self.root.addLayout(hbox(self.prev, self.next, self.lbl))
+        self.filter_val = None
+        self.filter_lbl = muted(""); self.clear_btn = button("Show all", slot=lambda: self.apply_preset({}, force=True))
+        self.root.insertLayout(2, hbox(self.filter_lbl, self.clear_btn)); self.clear_btn.hide()
+
+    def apply_preset(self, preset, force=False):
+        """Dashboard shortcut, e.g. {"action": "LOGIN_FAILED"} (audit) ; empty preset shows everything."""
+        v = (preset or {}).get("action")
+        self.filter_val = v if (v and self.kind == "audit-logs") else None
+        self.filter_lbl.setText(f"Filtered: {self.filter_val}" if self.filter_val else ""); self.clear_btn.setVisible(bool(self.filter_val))
+        self.go(1)
 
     def refresh(self): self.go(self.n)
 
     def go(self, n):
         if n < 1: return
         self.n = n
-        run_async(lambda: self.api.get(f"/{self.kind}", page=n, page_size=50), self._fill, lambda e: show_error(self, e))
+        extra = {"action": self.filter_val} if self.filter_val else {}
+        run_async(lambda: self.api.get(f"/{self.kind}", page=n, page_size=50, **extra), self._fill, lambda e: show_error(self, e))
 
     def _fill(self, r):
         audit = self.kind == "audit-logs"
@@ -538,3 +589,56 @@ class RosterPage(Page):
         run_async(lambda: self.api.post("/admin/roster/import", {"csv": text}),
                   lambda r: (info(self, f"Added {r['added']}, skipped {r['skipped']} existing." + (f"\nProblems: {'; '.join(r['errors'][:5])}" if r["errors"] else "")), self.refresh()),
                   lambda e: show_error(self, e))
+
+
+class ApiKeysPage(Page):
+    title = "Integrations (API keys)"
+
+    def __init__(self, api, main=None):
+        super().__init__(api, main)
+        self.root.addWidget(h1("Integrations — API keys"))
+        self.root.addWidget(muted("API keys let another system (e.g. the registrar or library catalog) call the ResearchVault integration API (/api/v1). "
+                                  "Keys are shown once, stored only as a hash, limited to the scopes you choose, and can be revoked."))
+        self.root.addLayout(hbox(button("Create API key", "primary", self.create), button("Revoke selected", "danger", self.revoke), button("Refresh", slot=self.refresh)))
+        self.table = DataTable(); self.root.addWidget(self.table)
+
+    def refresh(self):
+        run_async(lambda: self.api.get("/admin/api-keys"), self._fill, lambda e: show_error(self, e))
+
+    def _fill(self, r):
+        self.scopes = r["scopes"]
+        items = r["items"]
+        self.table.set_data(["Name", "Key starts with", "Scopes", "Status", "Expires", "Last used"],
+                            [[k["name"], k["key_prefix"] + "…", k["scopes"], k["status"], (k["expires_at"] or "never")[:10], (k["last_used_at"] or "never")[:16]] for k in items],
+                            [k["key_id"] for k in items])
+
+    def create(self):
+        from PySide6.QtWidgets import QCheckBox, QDialog, QSpinBox
+        d = QDialog(self); d.setWindowTitle("Create API key"); lay = QVBoxLayout(d)
+        name = QLineEdit(); name.setPlaceholderText("e.g. Registrar roster sync")
+        lay.addWidget(muted("Name of the system that will use this key *")); lay.addWidget(name)
+        boxes = {}
+        for sc, desc in (getattr(self, "scopes", {"roster:write": "Sync the student roster", "catalog:read": "Read archived research metadata"})).items():
+            cb = QCheckBox(f"{sc} — {desc}"); boxes[sc] = cb; lay.addWidget(cb)
+        days = QSpinBox(); days.setRange(0, 3650); days.setValue(365); days.setSpecialValueText("Never expires")
+        lay.addWidget(muted("Expires after (days)")); lay.addWidget(days)
+        def go():
+            chosen = [s for s, c in boxes.items() if c.isChecked()]
+            if not name.text().strip() or not chosen:
+                return info(d, "Enter a name and choose at least one scope.")
+            body = {"name": name.text().strip(), "scopes": chosen, "expires_days": days.value() or None}
+            def ok(r):
+                d.accept()
+                box = QLineEdit(r["api_key"]); box.setReadOnly(True); box.setMinimumWidth(480)
+                k = QDialog(self); k.setWindowTitle("Your new API key"); kl = QVBoxLayout(k)
+                kl.addWidget(h2("Copy this key now")); kl.addWidget(muted("It cannot be shown again. Anyone with this key can use its scopes."))
+                kl.addWidget(box); kl.addLayout(hbox(button("Close", "primary", k.accept))); box.selectAll(); k.exec(); self.refresh()
+            run_async(lambda: self.api.post("/admin/api-keys", body), ok, lambda e: show_error(d, e))
+        lay.addLayout(hbox(button("Create", "primary", go), button("Cancel", slot=d.reject)))
+        d.exec()
+
+    def revoke(self):
+        kid = self.table.selected_id()
+        if kid is None: return info(self, "Select a key first.")
+        if confirm(self, "Revoke this key? The external system will stop working immediately."):
+            run_async(lambda: self.api.post(f"/admin/api-keys/{kid}/revoke"), lambda _: self.refresh(), lambda e: show_error(self, e))

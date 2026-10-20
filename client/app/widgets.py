@@ -1,5 +1,5 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 from .api import ApiError
 
@@ -17,11 +17,11 @@ def status_text(code: str) -> str:
 
 def show_error(parent, err) -> None:
     msg = err.message if isinstance(err, ApiError) else f"Unexpected error: {err}"
-    QMessageBox.warning(parent, "DRASS", msg)
+    QMessageBox.warning(parent, "ResearchVault", msg)
 
 
 def info(parent, msg: str) -> None:
-    QMessageBox.information(parent, "DRASS", msg)
+    QMessageBox.information(parent, "ResearchVault", msg)
 
 
 def confirm(parent, msg: str) -> bool:
@@ -103,3 +103,30 @@ class Page(QWidget):
 
     def refresh(self) -> None:
         pass
+
+
+class StatCard(QFrame):
+    """Dashboard box. Clickable (mouse or Enter/Space) when `clickable`."""
+    clicked = Signal()
+
+    def __init__(self, title: str, value, clickable: bool = True):
+        super().__init__()
+        self.setObjectName("statcard"); self.setMinimumHeight(100); self.clickable = clickable
+        lay = QVBoxLayout(self); lay.setContentsMargins(18, 12, 18, 12)
+        v = QLabel(str(value)); v.setStyleSheet("font-size: 24pt;")
+        t = QLabel(title); t.setObjectName("muted"); t.setWordWrap(True)
+        lay.addWidget(v); lay.addWidget(t)
+        sh = QGraphicsDropShadowEffect(self); sh.setBlurRadius(18); sh.setOffset(0, 4); sh.setColor(Qt.GlobalColor.gray)
+        self.setGraphicsEffect(sh)
+        if clickable:
+            self.setCursor(Qt.PointingHandCursor); self.setFocusPolicy(Qt.StrongFocus); self.setToolTip("Click to open")
+
+    def mousePressEvent(self, e):
+        if self.clickable and e.button() == Qt.LeftButton:
+            self.clicked.emit()
+
+    def keyPressEvent(self, e):
+        if self.clickable and e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(e)

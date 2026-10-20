@@ -35,7 +35,7 @@ Run a single test: `pytest server/tests/test_api.py::test_tc03_approval_chain_an
 3. Verify: `mysql ... -e "select username, role_id from users"` shows 10 users.
 
 ## Stage 5 — Server
-`run_server.bat` → open `http://127.0.0.1:8000/health` (expect `{"status":"ok"}`) and `/docs` (try *POST /auth/login* with `student1` / `Drass#2026demo`; copy the token into *Authorize*).
+`run_server.bat` → open `http://127.0.0.1:8000/health` (expect `{"status":"ok"}`) and `/docs` (try *POST /auth/login* with `student1` / `Drass2026`; copy the token into *Authorize*).
 - Address in use → another process on 8000; change `API_PORT`/`--port` and the client's `DRASS_SERVER_URL`.
 - `EmbeddingUnavailable` / "model folder not found" → Stage 6.
 - From another PC: open Windows Firewall inbound TCP 8000; use the server's LAN IP.

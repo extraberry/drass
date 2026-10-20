@@ -27,7 +27,7 @@ class Settings:
     def __init__(self) -> None:
         _load_dotenv(ROOT / ".env")
         e = os.environ.get
-        self.app_name = e("APP_NAME", "DRASS")
+        self.app_name = e("APP_NAME", "ResearchVault")
         self.api_host = e("API_HOST", "0.0.0.0")
         self.api_port = int(e("API_PORT", "8000"))
         self.enable_docs = e("ENABLE_DOCS", "true").lower() == "true"

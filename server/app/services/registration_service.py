@@ -99,3 +99,35 @@ def import_csv(db: Session, actor: User, text: str) -> dict:
     audit(db, actor.user_id, "ROSTER_IMPORTED", "roster", None, details=f"added={added} skipped={skipped} errors={len(errors)}")
     db.commit()
     return {"added": added, "skipped": skipped, "errors": errors[:20]}
+
+
+def sync_roster(db: Session, students: list, source: str) -> dict:
+    """Idempotent upsert used by the integration API. New IDs are added; existing IDs get corrected names/department/status."""
+    depts = {d.department_name.lower(): d.department_id for d in db.scalars(select(Department)).all()}
+    existing = {r.student_number: r for r in db.scalars(select(StudentRoster)).all()}
+    added = updated = unchanged = 0
+    errors = []
+    seen = set()
+    for i, raw in enumerate(students, start=1):
+        sn = str(raw.get("student_number", "")).strip().upper()
+        last, first = str(raw.get("last_name", "")).strip(), str(raw.get("first_name", "")).strip()
+        status = str(raw.get("status", "ACTIVE")).strip().upper() or "ACTIVE"
+        if not SN_RE.match(sn) or not last or not first or status not in ("ACTIVE", "INACTIVE") or len(last) > 100 or len(first) > 100:
+            errors.append(f"Item {i}: invalid or missing values"); continue
+        if sn in seen:
+            errors.append(f"Item {i}: duplicate student_number in this request"); continue
+        seen.add(sn)
+        dept = depts.get(str(raw.get("department", "")).strip().lower())
+        row = existing.get(sn)
+        if row is None:
+            db.add(StudentRoster(student_number=sn, last_name=last, first_name=first, department_id=dept, status=status))
+            added += 1
+        elif (row.last_name, row.first_name, row.status, row.department_id) != (last, first, status, dept or row.department_id):
+            row.last_name, row.first_name, row.status = last, first, status
+            row.department_id = dept or row.department_id
+            updated += 1
+        else:
+            unchanged += 1
+    audit(db, None, "ROSTER_SYNCED", "roster", None, details=f"source={source} added={added} updated={updated} errors={len(errors)}")
+    db.commit()
+    return {"added": added, "updated": updated, "unchanged": unchanged, "errors": errors[:50]}

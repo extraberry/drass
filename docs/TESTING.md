@@ -7,6 +7,7 @@
 | File | Covers |
 |---|---|
 | `server/tests/test_domain.py` | workflow, RBAC rules, duplicates, file validation, lockout/session rules, cosine/threshold/recommendation logic |
+| `server/tests/test_override_offline.py` | administrator override approval and the 'panel approved offline' shortcut (RBAC, reason/reference required, audit, routing, setting) |
 | `server/tests/test_api.py` | auth, RBAC & permission audit, TC-01…TC-12, submission/upload validation, full approval chain with archive + embedding, search/filters/pagination, reader (needs PyMuPDF), reports RBAC/CSV, admin, settings |
 | `server/tests/test_real_model.py` | real MiniLM semantic check (skipped unless the model is installed) |
 | `client/tests/test_api_client.py` | client error translation (no GUI) |

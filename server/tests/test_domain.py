@@ -153,3 +153,50 @@ class SearchCoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdminOverrideTests(unittest.TestCase):
+    def test_targets(self):
+        t = wf.admin_override_target
+        self.assertEqual(t(Status.UNDER_ADVISER_REVIEW, "next"), Status.UNDER_PANEL_REVIEW)
+        self.assertEqual(t(Status.UNDER_PANEL_REVIEW, "next"), Status.UNDER_DEAN_REVIEW)
+        self.assertEqual(t(Status.UNDER_HEAD_LIBRARIAN_REVIEW, "next"), Status.ARCHIVED)
+        for s in (Status.UNDER_ADVISER_REVIEW, Status.UNDER_DEAN_REVIEW):
+            self.assertEqual(t(s, "archive"), Status.ARCHIVED)
+
+    def test_not_overridable(self):
+        for s in (Status.DRAFT, Status.SUBMITTED, Status.RETURNED_FOR_REVISION, Status.REJECTED, Status.ARCHIVED):
+            with self.assertRaises(InvalidTransition): wf.admin_override_target(s, "archive")
+        with self.assertRaises(ValidationFailed): wf.admin_override_target(Status.UNDER_PANEL_REVIEW, "skip")
+
+
+class OfflinePanelTests(unittest.TestCase):
+    def _w(self):
+        return wf.Work(1, Status.UNDER_ADVISER_REVIEW, 0, [wf.Assignment(10, Stage.ADVISER)])
+
+    def test_target_depends_on_setting(self):
+        self.assertEqual(wf.offline_panel_target(True), Status.UNDER_HEAD_LIBRARIAN_REVIEW)
+        self.assertEqual(wf.offline_panel_target(False), Status.UNDER_DEAN_REVIEW)
+
+    def test_adviser_approve_skips_panel(self):
+        w = self._w()
+        o = wf.review(w, 10, Stage.ADVISER, Decision.APPROVE, "ok", panel_offline_to=Status.UNDER_HEAD_LIBRARIAN_REVIEW)
+        self.assertEqual(o.new_status, Status.UNDER_HEAD_LIBRARIAN_REVIEW)
+        self.assertTrue(o.stage_complete)
+        self.assertEqual(w.version, 1)
+
+    def test_only_adviser_approve_may_use_it(self):
+        w = self._w()
+        with self.assertRaises(ValidationFailed):
+            wf.review(w, 10, Stage.ADVISER, Decision.RETURN, "no", panel_offline_to=Status.UNDER_DEAN_REVIEW)
+        w2 = wf.Work(2, Status.UNDER_PANEL_REVIEW, 0, [wf.Assignment(11, Stage.PANEL)])
+        with self.assertRaises(ValidationFailed):
+            wf.review(w2, 11, Stage.PANEL, Decision.APPROVE, panel_offline_to=Status.UNDER_DEAN_REVIEW)
+
+    def test_invalid_destination_rejected(self):
+        with self.assertRaises(ValidationFailed):
+            wf.review(self._w(), 10, Stage.ADVISER, Decision.APPROVE, panel_offline_to=Status.ARCHIVED)
+
+    def test_normal_approve_unchanged(self):
+        o = wf.review(self._w(), 10, Stage.ADVISER, Decision.APPROVE)
+        self.assertEqual(o.new_status, Status.UNDER_PANEL_REVIEW)

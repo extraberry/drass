@@ -15,7 +15,7 @@ from .models import (StudentRoster, Department, Program, ResearchCategory, Resea
 from .services import files_service, index_service
 from .services.submission_service import _apply
 
-DEMO_PASSWORD = "Drass#2026demo"
+DEMO_PASSWORD = "Drass#2026"
 ROLE_DESC = {
     "STUDENT": "Submits research and tracks status", "ADVISER": "Reviews assigned advisee submissions",
     "PANELIST": "Reviews assigned research as panel member", "DEAN": "Departmental approval stage",

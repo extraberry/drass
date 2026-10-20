@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QFormLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
-                               QVBoxLayout)
-from ..widgets import button, h1, h2, hbox, info, muted, show_error, status_text
+                               QRadioButton, QVBoxLayout)
+from ..widgets import button, confirm, h1, h2, hbox, info, muted, show_error, status_text
 from ..worker import run_async
 from .reader import ReaderDialog
 
@@ -41,6 +41,8 @@ class ResearchDetailDialog(QDialog):
         row = [button("Read Research" if self.api.token else "Sign in to read", "primary", self.read)]
         if self.api.role in LIB_ROLES and w["status"] == "ARCHIVED":
             row.append(button("Edit Metadata…", slot=self.edit_meta))
+        if self.api.role == "ADMIN" and w["status"].startswith("UNDER_"):
+            row.append(button("Approve as Administrator…", slot=self.override))
         self.lay.addLayout(hbox(*row))
         self.lay.addWidget(h2("Related Research"))
         self.rel = QListWidget(); self.rel.setMaximumHeight(150); self.lay.addWidget(self.rel)
@@ -59,10 +61,43 @@ class ResearchDetailDialog(QDialog):
             return info(self, "Please sign in to read the manuscript. Guests can browse and search the repository only.")
         ReaderDialog(self.api, self.work_id, self.work["title"], self).exec()
 
+    def override(self):
+        d = OverrideDialog(self.api, self.work, self)
+        if d.exec():
+            run_async(lambda: self.api.get(f"/repository/{self.work_id}"), self._render, lambda e: show_error(self, e))
+
     def edit_meta(self):
         d = MetadataDialog(self.api, self.work, self)
         if d.exec():
             run_async(lambda: self.api.get(f"/repository/{self.work_id}"), self._render, lambda e: show_error(self, e))
+
+
+class OverrideDialog(QDialog):
+    """Administrator approval without waiting for the adviser / panel / dean / librarian. Reason is mandatory and audited."""
+    def __init__(self, api, work, parent=None):
+        super().__init__(parent)
+        self.api, self.work = api, work
+        self.setWindowTitle("Approve as Administrator"); self.resize(560, 380)
+        lay = QVBoxLayout(self)
+        lay.addWidget(h2(work["title"]))
+        lay.addWidget(muted(f"Current status: {status_text(work['status'])}. Pending reviewers will be told their review is no longer needed. "
+                            "Earlier review decisions are kept; this approval is recorded as an ADMIN OVERRIDE in the review history and audit log."))
+        self.r_next = QRadioButton("Approve this stage and move to the next stage"); self.r_arch = QRadioButton("Approve everything remaining and ARCHIVE now")
+        self.r_next.setChecked(True); lay.addWidget(self.r_next); lay.addWidget(self.r_arch)
+        self.reason = QPlainTextEdit(); self.reason.setPlaceholderText("Reason (required, at least 5 characters) — e.g. 'Panel and adviser signed approval letters on file'")
+        lay.addWidget(self.reason)
+        lay.addLayout(hbox(button("Approve", "primary", self.go), button("Cancel", slot=self.reject)))
+
+    def go(self):
+        reason = self.reason.toPlainText().strip()
+        if len(reason) < 5:
+            return info(self, "Enter a reason of at least 5 characters.")
+        mode = "archive" if self.r_arch.isChecked() else "next"
+        if not confirm(self, "Approve this research as Administrator" + (" and ARCHIVE it now?" if mode == "archive" else " and move it to the next stage?")):
+            return
+        body = {"mode": mode, "reason": reason, "expected_version": self.work["version"]}
+        run_async(lambda: self.api.post(f"/admin/works/{self.work['work_id']}/override-approve", body),
+                  lambda r: (info(self, f"Done. New status: {r['status'].replace('_', ' ').title()}"), self.accept()), lambda e: show_error(self, e))
 
 
 class MetadataDialog(QDialog):

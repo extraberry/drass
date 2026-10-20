@@ -1,4 +1,5 @@
-# DRASS — Digital Research Archiving System with Semantic Search
+# ResearchVault — Digital Research Archiving System with Semantic Search
+*(formerly "DRASS"; internal names such as the `drass` database, `drass_user` and the project folder are unchanged on purpose.)*
 **Mary the Queen College of Quezon City, Inc.** — desktop research archive for newly submitted theses and capstone projects.
 
 > **Status:** all code in this repository was written without being able to install the dependencies or run MySQL in the authoring sandbox.
@@ -44,3 +45,6 @@ One server PC (FastAPI + MySQL + storage + model), many clients over LAN with `D
 1. `.venv\Scripts\python.exe scripts\setup_db.py` — creates the new `student_roster` table and adds demo roster rows (existing data is kept).
 2. In MySQL Workbench run: `ALTER TABLE drass.users ADD UNIQUE INDEX uq_users_student_number (student_number);` (enforces one account per student).
 3. Restart the server and the client. The client now opens in Guest mode.
+
+## Integration API
+After copying the update, run `.venv\Scripts\python.exe scripts\setup_db.py` once (creates the `api_keys` table; no ALTER needed). Admin: *Integrations (API keys)*. Details: `docs/INTEGRATION.md`.

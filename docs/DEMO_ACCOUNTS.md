@@ -1,5 +1,5 @@
 # Demo accounts
-**Demonstration only — change or delete these before real deployment.** Password for every account: `Drass#2026demo`
+**Demonstration only — change or delete these before real deployment.** Password for every account: `Drass2026`
 
 | Username | Role | Notes |
 |---|---|---|

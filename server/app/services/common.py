@@ -22,6 +22,7 @@ SETTING_SPECS = {
     "semantic_threshold": ("0.35", float, 0.0, 1.0),
     "recommendation_count": ("5", int, 1, 20),
     "log_search_queries": ("true", bool, None, None),
+    "offline_panel_skips_dean": ("true", bool, None, None),   # panel approved offline -> straight to Head Librarian
 }
 
 

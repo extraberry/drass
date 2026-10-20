@@ -1,6 +1,6 @@
 # Implementation status — honest self-audit
 **Legend.** *Written* = code exists and compiles (`py_compile`) and passed a crude undefined-name scan. *Verified* = actually executed and passing.
-The authoring sandbox had no network, so FastAPI, SQLAlchemy, bcrypt, PyMuPDF, sentence-transformers, PySide6 and MySQL were never installed there. **Only `server/tests/test_domain.py` (21 tests) was executed (passing).** The stdlib PDF generator's xref table was structurally checked. Everything else is Written, not Verified: first runs will probably surface bugs — use `docs/DEBUGGING.md`.
+The authoring sandbox had no network, so FastAPI, SQLAlchemy, bcrypt, PyMuPDF, sentence-transformers, PySide6 and MySQL were never installed there. **Only `server/tests/test_domain.py` (28 tests) was executed (passing).** The stdlib PDF generator's xref table was structurally checked. Everything else is Written, not Verified: first runs will probably surface bugs — use `docs/DEBUGGING.md`.
 
 | Requirement | Written | Verified | Notes |
 |---|---|---|---|
@@ -30,3 +30,21 @@ The authoring sandbox had no network, so FastAPI, SQLAlchemy, bcrypt, PyMuPDF, s
 |---|---|---|---|
 | Guest (no-login) Repository + Semantic Search on app open | Yes | **No** | `/public/*`, client guest mode; tests in `test_guest_register.py` |
 | Student self-registration with roster check, one account per student | Yes | **No** | roster table + CSV import + admin page; unique `users.student_number` |
+
+## Added later: integration-ready API
+| Requirement | Written | Verified | Notes |
+|---|---|---|---|
+| API keys (create once-shown, hash-stored, scopes, expiry, revoke, audit) + admin page | Yes | **No** | tests in `test_integration.py` |
+| `/api/v1` roster sync + catalog list/detail + Dublin Core export | Yes | **No** | see `docs/INTEGRATION.md` |
+| Webhooks, SSO, email, OAI-PMH | No | No | deferred by design |
+
+## Added later: ResearchVault UI, dark mode, override, offline panel approval
+| Requirement | Written | Verified | Notes |
+|---|---|---|---|
+| New light-blue design, cream ribbon + archive icon, school seal, yellow bell with unread count | Yes | **No** | assets cut from the supplied images; layout never launched, may need pixel tweaks |
+| Dark mode toggle (saved) | Yes | **No** | `client/app/style.py` |
+| Rename to ResearchVault | Yes | **No** | display names only (see DECISIONS) |
+| Clickable dashboard boxes with filtered target pages | Yes | **No** | Repository status, Users status, Audit Logs action |
+| Administrator override approval (server + dialog) | Yes | Domain rules only | API tests in `test_override_offline.py` not run |
+| Panel approved offline -> Head Librarian | Yes | Domain rules only | domain tests pass (28); API tests not run |
+| Passwords -> `Drass2026`, reset script | Yes | **No** | `scripts/reset_demo_passwords.py` |

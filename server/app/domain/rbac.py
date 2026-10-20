@@ -18,6 +18,8 @@ PERMISSIONS: dict[str, set[Role]] = {
     "settings.manage": {R.ADMIN},
     "audit.read": {R.ADMIN},
     "indexing.manage": {R.ADMIN},
+    "review.override": {R.ADMIN},
+    "integrations.manage": {R.ADMIN},
     "roster.manage": {R.ADMIN},
     "indexing.view": {R.ADMIN, R.HEAD_LIBRARIAN, R.LIBRARY_STAFF},
     "activity.read": {R.ADMIN},

@@ -1,5 +1,8 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFormLayout, QFrame, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from . import style
+from .brand import APP_NAME, INSTITUTION, TAGLINE, res
 from .widgets import button, h1, muted
 from .worker import run_async
 
@@ -11,10 +14,15 @@ class LoginWindow(QWidget):
     def __init__(self, api, message: str = ""):
         super().__init__()
         self.api = api
-        self.setWindowTitle("DRASS — Sign in"); self.setFixedSize(460, 600)
+        self.setObjectName("login"); self.setWindowTitle(f"{APP_NAME} — Sign in"); self.setFixedSize(460, 640)
         lay = QVBoxLayout(self); lay.setContentsMargins(40, 30, 40, 30)
-        lay.addWidget(h1("DRASS")); lay.addWidget(muted("Digital Research Archiving System with Semantic Search"))
-        lay.addWidget(muted("Mary the Queen College of Quezon City, Inc."))
+        top = QHBoxLayout(); logo = QLabel(); pm = QPixmap(res("seal.png"))
+        if not pm.isNull():
+            logo.setPixmap(pm.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)); top.addWidget(logo)
+        top.addWidget(h1(APP_NAME)); top.addStretch(1)
+        self.theme_btn = button(style.theme_button_text(), slot=self.toggle_theme); top.addWidget(self.theme_btn)
+        lay.addLayout(top)
+        lay.addWidget(muted(TAGLINE)); lay.addWidget(muted(INSTITUTION))
         lay.addSpacing(18)
         form = QFormLayout()
         self.user, self.pw, self.server = QLineEdit(), QLineEdit(), QLineEdit(api.base)
@@ -29,6 +37,9 @@ class LoginWindow(QWidget):
         lay.addStretch(1)
         lay.addWidget(muted("Access is logged. Contact the system administrator if you cannot sign in."))
         self.pw.returnPressed.connect(self.submit); self.user.returnPressed.connect(self.pw.setFocus)
+
+    def toggle_theme(self):
+        style.toggle_theme(QApplication.instance()); self.theme_btn.setText(style.theme_button_text())
 
     def register(self):
         from .dialogs.register_dialog import RegisterDialog

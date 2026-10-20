@@ -1,13 +1,14 @@
-"""DRASS desktop client entry point:  python client/main.py"""
+"""ResearchVault desktop client entry point:  python client/main.py"""
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root for `client.app...`
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 from client.app.api import ApiClient
 from client.app.login import LoginWindow
 from client.app.main_window import MainWindow
-from client.app.style import QSS
+from client.app.brand import APP_NAME, res
+from client.app.style import apply_theme, saved_theme
 from client.app.worker import bus
 
 
@@ -48,15 +49,9 @@ class Controller:
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")                       # consistent look; ignores Windows dark mode
-    pal = QPalette()
-    for role, color in ((QPalette.Window, "#F4F6FA"), (QPalette.WindowText, "#1B2333"), (QPalette.Base, "#FFFFFF"),
-                        (QPalette.AlternateBase, "#F7F9FD"), (QPalette.Text, "#1B2333"), (QPalette.Button, "#FFFFFF"),
-                        (QPalette.ButtonText, "#1B2333"), (QPalette.ToolTipBase, "#FFFFFF"), (QPalette.ToolTipText, "#1B2333"),
-                        (QPalette.PlaceholderText, "#6B7487"), (QPalette.Highlight, "#2F5597"), (QPalette.HighlightedText, "#FFFFFF")):
-        pal.setColor(role, QColor(color))
-    app.setPalette(pal)
-    app.setStyleSheet(QSS)
+    app.setApplicationName(APP_NAME); app.setOrganizationName("MaryTheQueenCollege")
+    app.setWindowIcon(QIcon(res("app_icon.png")))
+    apply_theme(app, saved_theme(), remember=False)   # Fusion style + light/dark palette (ignores Windows theme)
     ctl = Controller()   # noqa: F841 keep reference
     sys.exit(app.exec())
 

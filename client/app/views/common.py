@@ -12,6 +12,7 @@ class FilterBar(QWidget):
         self.year, self.author, self.keyword = QLineEdit(), QLineEdit(), QLineEdit()
         self.year.setPlaceholderText("Year"); self.author.setPlaceholderText("Author"); self.keyword.setPlaceholderText("Keyword")
         self.status = QComboBox() if with_status else None
+        self._want_status = None
         widgets = [("Program", self.program), ("Department", self.department), ("Category", self.category), ("Adviser", self.adviser),
                    ("Year", self.year), ("Author", self.author), ("Keyword", self.keyword)]
         if self.status is not None:
@@ -31,6 +32,8 @@ class FilterBar(QWidget):
         if self.status is not None:
             for s in lk["statuses"]:
                 self.status.addItem(s["name"], s["id"])
+            if self._want_status:
+                self.set_status(self._want_status)
 
     def values(self) -> dict:
         v = {"program_id": self.program.currentData(), "department_id": self.department.currentData(),
@@ -42,7 +45,18 @@ class FilterBar(QWidget):
             v["status"] = self.status.currentData()
         return v
 
+    def set_status(self, value):
+        """Select a status (used by dashboard shortcuts). Remembered if the lookup list has not loaded yet."""
+        if self.status is None: return
+        self._want_status = value
+        i = self.status.findData(value) if value else 0
+        if i >= 0:
+            self.status.setCurrentIndex(i)
+            if value: self._want_status = None
+
     def clear(self):
+        self._want_status = None
+        if self.status is not None: self.status.setCurrentIndex(0)
         for c in (self.program, self.department, self.category, self.adviser):
             c.setCurrentIndex(0)
         for e in (self.year, self.author, self.keyword):

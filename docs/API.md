@@ -10,3 +10,7 @@ Admin: `GET|POST /users`, `PATCH /users/{id}`, `POST /users/{id}/activate|deacti
 
 **Public (no login):** `GET /public/lookups`, `GET /public/repository`, `GET /public/repository/{id}`, `POST /public/search/semantic`, `GET /public/recommendations/{id}` — ARCHIVED records only, rate-limited. `POST /auth/register-student` (student_number, last_name, username, email, password).
 **Roster (ADMIN):** `GET|POST /admin/roster`, `POST /admin/roster/import` (`{"csv": "student_number,last_name,first_name,department\n..."}`).
+
+**Integration API (X-API-Key, stable):** `GET /api/v1/ping`, `POST /api/v1/integration/roster`, `GET /api/v1/catalog/works`, `GET /api/v1/catalog/works/{id}` — see `docs/INTEGRATION.md`. **Key admin (ADMIN):** `GET|POST /admin/api-keys`, `POST /admin/api-keys/{id}/revoke`.
+
+**Added**: `POST /reviews/{assignment_id}/approve` accepts optional `panel_offline` (bool) and `panel_offline_reference` (required when `panel_offline`; adviser stage only). `POST /admin/works/{work_id}/override-approve` body `{mode: "next"|"archive", reason, expected_version?}` (ADMIN). New setting `offline_panel_skips_dean`.

@@ -13,7 +13,7 @@ from ..domain.errors import Forbidden, NotFound, ValidationFailed
 from ..domain.file_validation import new_stored_name, sanitize_filename, validate_upload
 from ..models import Notification, ResearchWork, Revision, StatusHistory, User
 from ..schemas.schemas import (LoginIn, PanelIn, PasswordChangeIn, ProfilePatchIn, ResubmitIn, ReviewActionIn,
-                               SubmissionIn)
+                               SubmissionIn, OverrideIn)
 from ..services import (admin_service, auth_service, files_service, review_service, submission_service)
 from ..services.common import audit, get_setting
 from ..services.repository_service import get_work_for_user
@@ -247,10 +247,16 @@ def review_detail(assignment_id: int, user: User = Depends(require("review.act")
 def _decide(decision: Decision):
     def handler(assignment_id: int, body: ReviewActionIn, user: User = Depends(require("review.act")),
                 db: Session = Depends(get_db)):
-        return review_service.act(db, user, assignment_id, decision, body.comments, body.expected_version)
+        return review_service.act(db, user, assignment_id, decision, body.comments, body.expected_version,
+                                  body.panel_offline, body.panel_offline_reference)
     return handler
 
 
 router.add_api_route("/reviews/{assignment_id}/approve", _decide(Decision.APPROVE), methods=["POST"])
 router.add_api_route("/reviews/{assignment_id}/return", _decide(Decision.RETURN), methods=["POST"])
 router.add_api_route("/reviews/{assignment_id}/reject", _decide(Decision.REJECT), methods=["POST"])
+
+
+@router.post("/admin/works/{work_id}/override-approve")
+def override_approve(work_id: int, body: OverrideIn, user: User = Depends(require("review.override")), db: Session = Depends(get_db)):
+    return review_service.admin_override(db, user, work_id, body.mode, body.reason, body.expected_version)
