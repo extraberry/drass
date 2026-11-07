@@ -1,6 +1,5 @@
 # ResearchVault — Digital Research Archiving System with Semantic Search
-*(formerly "DRASS"; internal names such as the `drass` database, `drass_user` and the project folder are unchanged on purpose.)*
-**Mary the Queen College of Quezon City, Inc.** — desktop research archive for newly submitted theses and capstone projects.
+*(formerly "DRASS"; internal names such as the `drass` database, `drass_user` and the project folder are unchanged on purpose.)* desktop research archive for newly submitted theses and capstone projects.
 
 > **Status:** all code in this repository was written without being able to install the dependencies or run MySQL in the authoring sandbox.
 > Only the pure-Python domain tests (`server/tests/test_domain.py`, 21 tests) were executed there. The API, database layer, client and
