@@ -1,6 +1,8 @@
 """Light / dark themes. `apply_theme(app, name)` swaps palette + stylesheet live; the choice is remembered (QSettings)."""
-from PySide6.QtCore import QSettings
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QColor, QPalette, QPixmap, QPainter, QPen
+import os
+import tempfile
 
 THEMES = {
     "light": dict(text="#0F2854", muted="#697498", bg="#BBCAE6", panel="#C9D1E0", header="#0F2854", dialog="#EEF2FA",
@@ -16,7 +18,28 @@ THEMES = {
 }
 
 
+_TICK = {}
+
+
+def _tick_url() -> str:
+    """A white check mark (PNG) for ticked boxes, drawn once; QSS cannot draw a tick by itself, so without it a ticked box looks empty."""
+    if "url" not in _TICK:
+        try:
+            path = os.path.join(tempfile.gettempdir(), "drass_tick.png")
+            pm = QPixmap(32, 32); pm.fill(QColor(0, 0, 0, 0))
+            pt = QPainter(pm); pt.setRenderHint(QPainter.Antialiasing)
+            pen = QPen(QColor("#FFFFFF")); pen.setWidth(5); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin); pt.setPen(pen)
+            pt.drawLine(7, 17, 13, 23); pt.drawLine(13, 23, 25, 9); pt.end()
+            pm.save(path, "PNG")
+            _TICK["url"] = path.replace("\\", "/")
+        except Exception:
+            _TICK["url"] = ""
+    return _TICK["url"]
+
+
 def build_qss(t: dict) -> str:
+    tick = _tick_url()
+    tick_img = f"image: url({tick});" if tick else ""
     return f"""
 * {{ font-family: 'Segoe UI', Arial, sans-serif; font-size: 10.5pt; color: {t['text']}; }}
 QLabel {{ background: transparent; }}
@@ -51,7 +74,14 @@ QPushButton#primary:hover {{ background: {t['primary_hover']}; }}
 QPushButton#danger {{ color: {t['danger']}; background: {t['btn']}; border-color: {t['danger']}; }}
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDateEdit, QTextEdit, QListWidget {{ color: {t['text']}; background: {t['input']}; border: 1px solid {t['border']}; border-radius: 6px; padding: 5px; selection-background-color: {t['select']}; selection-color: {t['select_text']}; }}
 QComboBox QAbstractItemView {{ color: {t['text']}; background: {t['input']}; selection-background-color: {t['select']}; selection-color: {t['select_text']}; }}
-QCheckBox, QRadioButton {{ color: {t['text']}; background: transparent; spacing: 6px; }}
+QCheckBox, QRadioButton {{ color: {t['text']}; background: transparent; spacing: 8px; }}
+QCheckBox::indicator, QListWidget::indicator, QTableWidget::indicator {{ width: 18px; height: 18px; border: 2px solid {t['text']}; border-radius: 4px; background: {t['input']}; }}
+QCheckBox::indicator:hover, QListWidget::indicator:hover, QTableWidget::indicator:hover {{ border-color: {t['primary_hover']}; }}
+QCheckBox::indicator:checked, QListWidget::indicator:checked, QTableWidget::indicator:checked {{ background: {t['primary']}; border-color: {t['primary']}; {tick_img} }}
+QCheckBox::indicator:indeterminate {{ background: {t['muted']}; border-color: {t['muted']}; }}
+QCheckBox::indicator:disabled {{ border-color: {t['btn_disabled']}; }}
+QRadioButton::indicator {{ width: 16px; height: 16px; border: 2px solid {t['text']}; border-radius: 10px; background: {t['input']}; }}
+QRadioButton::indicator:checked {{ background: {t['primary']}; border-color: {t['primary']}; }}
 QTableWidget {{ color: {t['text']}; background: {t['input']}; alternate-background-color: {t['table_alt']}; gridline-color: {t['grid']}; border: none; border-radius: 6px; selection-background-color: {t['select']}; selection-color: {t['select_text']}; }}
 QHeaderView::section {{ background: {t['th']}; color: {t['th_text']}; padding: 6px; border: none; }}
 QScrollArea {{ background: transparent; border: none; }}
@@ -71,7 +101,7 @@ def _palette(t: dict) -> QPalette:
 
 def saved_theme() -> str:
     try:
-        v = QSettings("MaryTheQueenCollege", "ResearchVault").value("theme", "light")
+        v = QSettings("MaryTheQueenCollege", "DRASS").value("theme", "light")
     except Exception:
         v = "light"
     return v if v in THEMES else "light"
@@ -93,7 +123,7 @@ def apply_theme(app, name: str, remember: bool = True) -> str:
     app.setStyleSheet(build_qss(THEMES[name]))
     if remember:
         try:
-            QSettings("MaryTheQueenCollege", "ResearchVault").setValue("theme", name)
+            QSettings("MaryTheQueenCollege", "DRASS").setValue("theme", name)
         except Exception:
             pass
     return name
@@ -101,6 +131,11 @@ def apply_theme(app, name: str, remember: bool = True) -> str:
 
 def toggle_theme(app) -> str:
     return apply_theme(app, "dark" if _current == "light" else "light")
+
+
+def card_shadow_rgba() -> tuple:
+    """Drop-shadow colour for dashboard cards: soft navy in light mode, deeper black in dark mode."""
+    return (0, 0, 0, 115) if _current == "dark" else (15, 40, 84, 46)
 
 
 def theme_button_text() -> str:

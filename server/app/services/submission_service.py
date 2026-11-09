@@ -7,15 +7,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from ..core.timeutil import utcnow
 from ..domain import duplicates, workflow as wf
-from ..domain.enums import Role, Stage, Status
+from ..domain.enums import Role, Status
 from ..domain.errors import DuplicateResearch, Forbidden, InvalidTransition, NotFound, ValidationFailed
-from ..models import (Keyword, ResearchAuthor, ResearchKeyword, ResearchWork, Revision, ReviewAssignment,
-                      Role as RoleModel, User, Department, Program, ResearchCategory)
+from ..models import (Keyword, ResearchAuthor, ResearchKeyword, ResearchWork, Revision,
+                      User, Department, Program, ResearchCategory)
 from . import files_service
-from .common import audit, notify
+from .common import audit, notify, notify_roles
 from .serializers import STATUS_LABELS, authors_of, keywords_of, work_dict
 
-EDITABLE = {Status.DRAFT.value, Status.RETURNED_FOR_REVISION.value}
+EDITABLE = {Status.DRAFT.value, Status.RETURNED.value}
 
 
 def _owned(db: Session, user: User, work_id: int) -> ResearchWork:
@@ -48,7 +48,7 @@ def _dup_key(w: ResearchWork, authors: list[str]) -> Optional[str]:
 
 
 def _apply(db: Session, w: ResearchWork, data: dict) -> None:
-    for f in ("title", "abstract", "year", "program_id", "department_id", "category_id", "adviser_id"):
+    for f in ("title", "abstract", "year", "program_id", "department_id", "category_id", "adviser_id", "dean_id"):
         if f in data:
             v = data[f].strip() if isinstance(data[f], str) else data[f]
             setattr(w, f, "" if (v is None and f in ("title", "abstract")) else v)
@@ -59,10 +59,11 @@ def _apply(db: Session, w: ResearchWork, data: dict) -> None:
         w.department_id = w.department_id or p.department_id
     if data.get("category_id") and db.get(ResearchCategory, data["category_id"]) is None:
         raise ValidationFailed("Unknown category.", {"category_id": "Unknown category."})
-    if data.get("adviser_id"):
-        adv = db.get(User, data["adviser_id"])
-        if adv is None or adv.role.role_name != Role.ADVISER.value or adv.status != "ACTIVE":
-            raise ValidationFailed("Select a valid adviser.", {"adviser_id": "Select a valid adviser."})
+    for field, label in (("adviser_id", "adviser"), ("dean_id", "dean")):
+        if data.get(field):
+            person = db.get(User, data[field])
+            if person is None or person.role.role_name != Role.FACULTY.value or person.status != "ACTIVE":
+                raise ValidationFailed(f"Select a valid {label} from the faculty list.", {field: f"Select a valid {label}."})
     if data.get("authors") is not None:
         db.query(ResearchAuthor).filter(ResearchAuthor.work_id == w.work_id).delete()
         for i, a in enumerate(data["authors"], 1):
@@ -83,7 +84,7 @@ def create_draft(db: Session, user: User, data: dict) -> ResearchWork:
     w = ResearchWork(submitted_by=user.user_id, current_status=Status.DRAFT.value,
                      title=(data.get("title") or "").strip(), abstract="")
     db.add(w); db.flush()
-    w.reference_no = f"RV-{utcnow().year}-{w.work_id:05d}"
+    w.reference_no = f"DRASS-{utcnow().year}-{w.work_id:05d}"
     data = {**data}
     if not data.get("authors"):
         data["authors"] = [{"name": user.full_name, "student_number": user.student_number}]
@@ -102,77 +103,45 @@ def update(db: Session, user: User, work_id: int, data: dict) -> ResearchWork:
 
 
 def validate_for_submit(db: Session, w: ResearchWork) -> None:
+    """FR4: required fields (title, abstract, keywords, authors, year, course, department, adviser, dean) and the final PDF."""
     errs = {}
     if not (w.title or "").strip(): errs["title"] = "Title is required."
     if not (w.abstract or "").strip(): errs["abstract"] = "Abstract is required."
     if not w.year: errs["year"] = "Year is required."
-    if not w.program_id: errs["program_id"] = "Program is required."
+    if not w.program_id: errs["program_id"] = "Course is required."
     if not w.department_id: errs["department_id"] = "Department is required."
-    if not w.category_id: errs["category_id"] = "Research category is required."
     if not w.adviser_id: errs["adviser_id"] = "Adviser is required."
+    if not w.dean_id: errs["dean_id"] = "Dean is required."
     if not authors_of(db, w.work_id): errs["authors"] = "At least one author is required."
     if not keywords_of(db, w.work_id): errs["keywords"] = "At least one keyword is required."
-    if files_service.active_manuscript(db, w.work_id) is None: errs["manuscript"] = "A manuscript PDF is required."
+    if files_service.active_manuscript(db, w.work_id) is None:
+        errs["manuscript"] = "The final PDF (manuscript with the completed approval sheet) is required."
     if errs:
         raise ValidationFailed("Please complete the required fields.", errs)
     if w.dup_key:
         other = db.scalar(select(ResearchWork).where(
             ResearchWork.dup_key == w.dup_key, ResearchWork.work_id != w.work_id,
-            ResearchWork.current_status.notin_([Status.DRAFT.value, Status.REJECTED.value])))
+            ResearchWork.current_status != Status.DRAFT.value))
         if other is not None:
             raise DuplicateResearch("A research record with the same title, authors and year already exists.")
 
 
-def ensure_assignments(db: Session, w: ResearchWork, stage: Stage, revision_number: int) -> list[int]:
-    """Create pending assignments for a stage (idempotent per revision). Returns reviewer ids."""
-    existing = db.scalars(select(ReviewAssignment).where(
-        ReviewAssignment.work_id == w.work_id, ReviewAssignment.stage == stage.value,
-        ReviewAssignment.revision_number == revision_number, ReviewAssignment.status != "CANCELLED")).all()
-    if existing:
-        return [a.reviewer_id for a in existing]
-    q = select(User).join(RoleModel, User.role_id == RoleModel.role_id).where(User.status == "ACTIVE")
-    if stage is Stage.ADVISER:
-        reviewers = [db.get(User, w.adviser_id)]
-    elif stage is Stage.PANEL:
-        same = db.scalars(q.where(RoleModel.role_name == "PANELIST", User.department_id == w.department_id)).all()
-        reviewers = list(same) or list(db.scalars(q.where(RoleModel.role_name == "PANELIST")).all())
-    elif stage is Stage.DEAN:
-        same = db.scalars(q.where(RoleModel.role_name == "DEAN", User.department_id == w.department_id)).all()
-        reviewers = list(same[:1]) or list(db.scalars(q.where(RoleModel.role_name == "DEAN")).all()[:1])
-    else:
-        reviewers = list(db.scalars(q.where(RoleModel.role_name == "HEAD_LIBRARIAN")).all()[:1])
-    reviewers = [r for r in reviewers if r is not None]
-    if not reviewers:
-        raise ValidationFailed(f"No active reviewer is available for the {stage.value} stage. Contact the administrator.")
-    for r in reviewers:
-        db.add(ReviewAssignment(work_id=w.work_id, stage=stage.value, reviewer_id=r.user_id,
-                                revision_number=revision_number))
-        notify(db, r.user_id, "New submission awaiting review", f"“{w.title}” is ready for your {stage.value.replace('_',' ').title()} review.",
-               "REVIEW", "work", w.work_id)
-    return [r.user_id for r in reviewers]
+def active_head_librarians(db: Session) -> list[User]:
+    return list(db.scalars(select(User).where(User.status == "ACTIVE", User.is_head_librarian.is_(True),
+                                              User.role.has(role_name=Role.LIBRARY_STAFF.value))).all())
 
 
-def set_panel(db: Session, actor: User, w: ResearchWork, panelist_ids: list[int]) -> None:
-    rn = db.get(Revision, w.current_revision_id).revision_number if w.current_revision_id else 1
-    ids = set(panelist_ids)
-    users = [db.get(User, i) for i in ids]
-    if any(u is None or u.role.role_name != "PANELIST" or u.status != "ACTIVE" for u in users):
-        raise ValidationFailed("All selected users must be active panelists.")
-    if w.current_status in (Status.UNDER_DEAN_REVIEW.value, Status.UNDER_HEAD_LIBRARIAN_REVIEW.value,
-                            Status.ARCHIVED.value, Status.REJECTED.value):
-        raise InvalidTransition("The panel can no longer be changed for this work.")
-    for a in db.scalars(select(ReviewAssignment).where(ReviewAssignment.work_id == w.work_id,
-                        ReviewAssignment.stage == "PANEL", ReviewAssignment.revision_number == rn,
-                        ReviewAssignment.status == "PENDING")).all():
-        if a.reviewer_id not in ids:
-            a.status = "CANCELLED"
-    have = set(db.scalars(select(ReviewAssignment.reviewer_id).where(
-        ReviewAssignment.work_id == w.work_id, ReviewAssignment.stage == "PANEL",
-        ReviewAssignment.revision_number == rn, ReviewAssignment.status != "CANCELLED")).all())
-    for uid in ids - have:
-        db.add(ReviewAssignment(work_id=w.work_id, stage="PANEL", reviewer_id=uid, revision_number=rn))
-        notify(db, uid, "Reassigned work", f"You were assigned to review “{w.title}”.", "REVIEW", "work", w.work_id)
-    audit(db, actor.user_id, "PANEL_ASSIGNED", "work", w.work_id, details=f"panelists={sorted(ids)}")
+def notify_pending_verification(db: Session, w: ResearchWork, resubmitted: bool = False) -> None:
+    """Tell the Head Librarian(s) that a submission is waiting; if no Head Librarian exists, warn the administrators."""
+    heads = active_head_librarians(db)
+    what = "resubmitted after correction" if resubmitted else "submitted"
+    for h in heads:
+        notify(db, h.user_id, "Submission awaiting verification", f"“{w.title}” was {what} and is waiting for your signatory verification.",
+               "VERIFICATION", "work", w.work_id)
+    if not heads:
+        notify_roles(db, ["ADMIN"], "No Head Librarian available",
+                     f"“{w.title}” is pending verification but no active Head Librarian account exists. Designate one in Users.",
+                     "VERIFICATION", "work", w.work_id)
 
 
 def _snapshot(db: Session, w: ResearchWork) -> str:
@@ -200,14 +169,13 @@ def submit(db: Session, user: User, work_id: int) -> ResearchWork:
     if w.current_status != Status.DRAFT.value:
         raise InvalidTransition("Only drafts can be submitted.")
     validate_for_submit(db, w)
-    rev = _new_revision(db, w, user, "Initial submission")
+    _new_revision(db, w, user, "Initial submission")
     dw = wf.Work(w.work_id, Status(w.current_status), w.version)
     wf.submit(dw)
     w.current_status, w.version, w.submitted_at = dw.status.value, dw.version, utcnow()
-    _history(db, w, "DRAFT", "SUBMITTED", user.user_id, "Submitted")
-    _history(db, w, "SUBMITTED", dw.status.value, None, "Routed to adviser")
-    ensure_assignments(db, w, Stage.ADVISER, rev.revision_number)
-    notify(db, user.user_id, "Submission received", f"Reference {w.reference_no} is now under adviser review.",
+    _history(db, w, "DRAFT", dw.status.value, user.user_id, "Submitted for signatory verification")
+    notify_pending_verification(db, w)
+    notify(db, user.user_id, "Submission received", f"Reference {w.reference_no} is now Pending Verification by the Head Librarian.",
            "SUBMISSION", "work", w.work_id)
     audit(db, user.user_id, "SUBMISSION_SUBMITTED", "work", w.work_id, details=w.reference_no or "")
     return w
@@ -215,7 +183,7 @@ def submit(db: Session, user: User, work_id: int) -> ResearchWork:
 
 def resubmit(db: Session, user: User, work_id: int, change_notes: str) -> ResearchWork:
     w = _owned(db, user, work_id)
-    if w.current_status != Status.RETURNED_FOR_REVISION.value:
+    if w.current_status != Status.RETURNED.value:
         raise InvalidTransition("Only returned submissions can be resubmitted.")
     if not (change_notes or "").strip():
         raise ValidationFailed("Please describe what changed.", {"change_notes": "Required."})
@@ -224,8 +192,8 @@ def resubmit(db: Session, user: User, work_id: int, change_notes: str) -> Resear
     dw = wf.Work(w.work_id, Status(w.current_status), w.version)
     wf.resubmit(dw)
     w.current_status, w.version = dw.status.value, dw.version
-    _history(db, w, "RETURNED_FOR_REVISION", dw.status.value, user.user_id, change_notes.strip())
-    ensure_assignments(db, w, Stage.ADVISER, rev.revision_number)
+    _history(db, w, Status.RETURNED.value, dw.status.value, user.user_id, change_notes.strip())
+    notify_pending_verification(db, w, resubmitted=True)
     audit(db, user.user_id, "SUBMISSION_RESUBMITTED", "work", w.work_id, details=f"revision {rev.revision_number}")
     return w
 

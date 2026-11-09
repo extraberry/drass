@@ -22,7 +22,7 @@ def api_key(scope: str):
 
 @router.get(V1 + "/ping")
 def ping():
-    return {"service": "ResearchVault", "api_version": "v1", "status": "ok"}
+    return {"service": "DRASS", "api_version": "v1", "status": "ok"}
 
 
 @router.post(V1 + "/integration/roster")

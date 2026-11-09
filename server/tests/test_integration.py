@@ -45,7 +45,7 @@ def test_catalog_returns_only_archived_metadata(demo):
     r = demo.get("/api/v1/catalog/works?page_size=5", headers=K(k)).json()
     assert r["total"] == 12 and len(r["items"]) == 5
     item = r["items"][0]
-    assert set(item) == {"id", "reference_no", "title", "abstract", "year", "authors", "program", "department", "category", "adviser", "keywords", "archived_at"}
+    assert set(item) == {"id", "reference_no", "title", "abstract", "year", "authors", "program", "department", "category", "adviser", "dean", "keywords", "archived_at"}
     assert all(isinstance(a, str) for a in item["authors"])             # names only, no student numbers
     text = str(r).lower()
     assert "storage" not in text and "sha256" not in text and "student_number" not in text

@@ -14,21 +14,18 @@ from .worker import run_async
 def _nav(role, api):
     S = lambda cls, *a, **k: (lambda: cls(api, None, *a, **k))
     dash, notif, prof, search = ("Dashboard", S(P.DashboardPage)), ("Notifications", S(P.NotificationsPage)), ("Profile", S(P.ProfilePage)), ("Search", S(P.SearchPage))
-    repo, reports = ("Repository", S(P.RepositoryPage)), ("Reports", S(P.ReportsPage))
-    hist = ("Review History", S(P.ReviewHistoryPage))
+    repo = ("Repository", S(P.RepositoryPage))
+    staff = [dash, ("Verification Queue", S(P.VerificationQueuePage))]
+    if api.user.get("is_head_librarian"): staff.append(("Verification History", S(P.VerificationHistoryPage)))
     return {
         "STUDENT": [dash, ("My Submissions", S(P.SubmissionsPage)), search, repo, notif, prof],
-        "ADVISER": [dash, ("Review Queue", S(P.ReviewQueuePage, "Review Queue")), hist, search, repo, reports, notif, prof],
-        "PANELIST": [dash, ("Assigned Reviews", S(P.ReviewQueuePage, "Assigned Reviews")), hist, search, repo, reports, notif, prof],
-        "DEAN": [dash, ("Pending Approvals", S(P.ReviewQueuePage, "Pending Approvals")), hist, ("Department Research", S(P.RepositoryPage, "Department Research")), search, reports, notif, prof],
-        "LIBRARY_STAFF": [dash, repo, search, ("Indexing Monitor", S(P.IndexingPage)), reports, notif, prof],
-        "HEAD_LIBRARIAN": [dash, ("Archive Approval Queue", S(P.ReviewQueuePage, "Archive Approval Queue")), hist, repo, search, ("Indexing Monitor", S(P.IndexingPage)), reports, notif, prof],
-        "ADMIN": [dash, ("Users", S(P.UsersPage)), ("Roles", S(P.RolesPage)), ("Department/ Programs", S(P.LookupsPage)),
+        "FACULTY": [dash, search, repo, notif, prof],
+        "LIBRARY_STAFF": staff + [search, repo, notif, prof],
+        "ADMIN": [dash, ("Users", S(P.UsersPage)), ("Roles", S(P.RolesPage)), ("Department/ Courses", S(P.LookupsPage)),
                   ("System Settings", S(P.SettingsPage)), ("Student Roster", S(P.RosterPage)), ("Integrations (API keys)", S(P.ApiKeysPage)),
                   ("Audit Logs", S(P.LogsPage, "audit-logs", "Audit Logs")), ("Activity Logs", S(P.LogsPage, "activity-logs", "Activity Logs")),
-                  ("Repository Management", S(P.RepositoryPage, "Repository Management", True)), ("Indexing Monitor", S(P.IndexingPage)),
-                  search, reports, notif, prof],
-        "EXTERNAL_USER": [dash, repo, search, prof],
+                  ("Indexing Monitor", S(P.IndexingPage)), ("Backup & Recovery", S(P.BackupPage)), ("Reports", S(P.ReportsPage)), notif, prof],
+        "EXTERNAL_USER": [repo, search, prof],
         "GUEST": [repo, search],
     }[role]
 
@@ -50,7 +47,7 @@ class MainWindow(QMainWindow):
         hl.addLayout(left); hl.addStretch(1)
         u = api.user
         self.guest = u["role"] == "GUEST"
-        who = "Guest visitor - browse and search only" if self.guest else f"{u['full_name']} - {u['role'].replace('_', ' ').title()}"
+        who = "Guest visitor - browse, search and read" if self.guest else f"{u['full_name']} - {u['role'].replace('_', ' ').title()}"
         who_lbl = QLabel(who); who_lbl.setContentsMargins(0, 0, 8, 0); hl.addWidget(who_lbl)
         self.bell = button("0", slot=self.open_notifications); self.bell.setToolTip("Notifications")
         self.bell.setIcon(QIcon(res("bell.svg"))); self.bell.setIconSize(QSize(18, 18)); self.bell.setFixedHeight(32); hl.addWidget(self.bell)

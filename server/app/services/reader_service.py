@@ -1,9 +1,9 @@
 """Secure reader: server renders single pages to PNG; the client never receives the PDF (PRD s26-27)."""
 from sqlalchemy.orm import Session
-from ..domain.errors import NotFound, StorageError, ValidationFailed
+from ..domain.errors import Forbidden, NotFound, StorageError, ValidationFailed
 from ..models import User
 from . import files_service
-from .common import activity
+from .common import activity, get_setting
 from .repository_service import get_work_for_user
 
 
@@ -18,8 +18,15 @@ def _open(path: str):
         raise StorageError("The manuscript could not be opened. It may be corrupted.") from exc
 
 
-def info(db: Session, user: User, work_id: int) -> dict:
+def _check_access(db: Session, user: User, work_id: int) -> None:
+    """Record-level access (publication status) plus the college's confirmation for External Users' full-text reading."""
     get_work_for_user(db, user, work_id)
+    if user.role.role_name == "EXTERNAL_USER" and not get_setting(db, "guest_reading_enabled"):
+        raise Forbidden("Full-text reading for external users has not been enabled by the college.")
+
+
+def info(db: Session, user: User, work_id: int) -> dict:
+    _check_access(db, user, work_id)
     doc = _open(files_service.manuscript_path(db, work_id))
     try:
         return {"work_id": work_id, "page_count": doc.page_count}
@@ -28,7 +35,7 @@ def info(db: Session, user: User, work_id: int) -> dict:
 
 
 def render_page(db: Session, user: User, work_id: int, page: int, scale: float) -> tuple[bytes, dict]:
-    get_work_for_user(db, user, work_id)
+    _check_access(db, user, work_id)
     if not (0.4 <= scale <= 4.0):
         raise ValidationFailed("Invalid zoom level.")
     doc = _open(files_service.manuscript_path(db, work_id))

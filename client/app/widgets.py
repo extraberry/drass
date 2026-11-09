@@ -3,12 +3,11 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 from .api import ApiError
+from .style import card_shadow_rgba
 
-STATUS_LABELS = {"DRAFT": "Draft", "SUBMITTED": "Submitted", "UNDER_ADVISER_REVIEW": "Under Adviser Review",
-                 "UNDER_PANEL_REVIEW": "Under Panel Review", "UNDER_DEAN_REVIEW": "Under Dean Review",
-                 "UNDER_HEAD_LIBRARIAN_REVIEW": "Under Head Librarian Review", "RETURNED_FOR_REVISION": "Returned for Revision",
-                 "REJECTED": "Rejected", "ARCHIVED": "Archived"}
-STATUS_ICON = {"ARCHIVED": "✔", "REJECTED": "✖", "RETURNED_FOR_REVISION": "↩", "DRAFT": "✎"}
+STATUS_LABELS = {"DRAFT": "Draft", "PENDING_VERIFICATION": "Pending Verification", "RETURNED": "Returned", "ARCHIVED": "Archived"}
+STATUS_ICON = {"ARCHIVED": "✔", "RETURNED": "↩", "DRAFT": "✎", "PENDING_VERIFICATION": "⏳"}
+PUBLICATION_LABELS = {"PUBLIC": "Public", "RESTRICTED": "Restricted", "UNPUBLISHED": "Unpublished"}
 
 
 def status_text(code: str) -> str:
@@ -18,11 +17,11 @@ def status_text(code: str) -> str:
 
 def show_error(parent, err) -> None:
     msg = err.message if isinstance(err, ApiError) else f"Unexpected error: {err}"
-    QMessageBox.warning(parent, "ResearchVault", msg)
+    QMessageBox.warning(parent, "DRASS", msg)
 
 
 def info(parent, msg: str) -> None:
-    QMessageBox.information(parent, "ResearchVault", msg)
+    QMessageBox.information(parent, "DRASS", msg)
 
 
 def confirm(parent, msg: str) -> bool:
@@ -117,7 +116,7 @@ class StatCard(QFrame):
         v = QLabel(str(value)); v.setStyleSheet("font-size: 17pt;")
         t = QLabel(title); t.setObjectName("muted"); t.setWordWrap(True)
         lay.addWidget(v); lay.addWidget(t)
-        sh = QGraphicsDropShadowEffect(self); sh.setBlurRadius(14); sh.setOffset(0, 3); sh.setColor(QColor(15, 40, 84, 70))
+        sh = QGraphicsDropShadowEffect(self); sh.setBlurRadius(14); sh.setOffset(0, 3); sh.setColor(QColor(*card_shadow_rgba()))
         self.setGraphicsEffect(sh)
         if clickable:
             self.setCursor(Qt.PointingHandCursor); self.setFocusPolicy(Qt.StrongFocus); self.setToolTip("Click to open")

@@ -1,3 +1,4 @@
+import pytest
 from server.tests.helpers import DEMO_PASSWORD, login, new_draft, ready_submission
 
 REG = {"student_number": "2023-0101", "last_name": "Reyes", "username": "carla", "email": "carla@school.edu", "password": "longenough1"}
@@ -19,12 +20,37 @@ def test_guest_search_returns_ranked_results(demo):
     assert r["count"] >= 1 and r["results"][0]["title"].startswith("Gamified")
 
 
-def test_guest_detail_has_no_read_access_or_files(demo):
+def test_guest_detail_can_read_but_exposes_no_files(demo):
     wid = demo.get("/public/repository").json()["items"][0]["work_id"]
     d = demo.get(f"/public/repository/{wid}").json()
-    assert d["can_read"] is False and "files" not in d and "storage" not in str(d).lower()
-    assert demo.get(f"/reader/{wid}/pages/1").status_code == 401        # manuscripts need sign-in
+    assert d["can_read"] is True and "files" not in d and "storage" not in str(d).lower()
+    assert demo.get(f"/reader/{wid}/pages/1").status_code == 401        # the signed-in reader URL still needs sign-in
     assert demo.get(f"/public/recommendations/{wid}").status_code == 200
+
+
+def test_guest_reads_archived_research_without_account(demo):
+    pytest.importorskip("fitz")
+    wid = demo.get("/public/repository").json()["items"][0]["work_id"]
+    info = demo.get(f"/public/reader/{wid}/info")
+    assert info.status_code == 200 and info.json()["page_count"] >= 1
+    r = demo.get(f"/public/reader/{wid}/pages/1?scale=1.2")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
+    assert "no-store" in r.headers["cache-control"] and "attachment" not in r.headers.get("content-disposition", "")
+    assert demo.get(f"/public/reader/{wid}/pages/9999").status_code == 404
+
+
+def test_guest_cannot_read_unarchived_work(client):
+    wid = ready_submission(client, login(client, "student1"))
+    assert client.get(f"/public/reader/{wid}/info").status_code == 404
+    assert client.get(f"/public/reader/{wid}/pages/1").status_code == 404
+
+
+def test_admin_can_switch_off_reading_without_account(demo):
+    wid = demo.get("/public/repository").json()["items"][0]["work_id"]
+    assert demo.put("/admin/settings", headers=login(demo, "admin"), json={"values": {"guest_reading_enabled": "false"}}).status_code == 200
+    assert demo.get(f"/public/reader/{wid}/info").status_code == 403
+    assert demo.get(f"/public/repository/{wid}").json()["can_read"] is False
+    assert demo.get(f"/reader/{wid}/info", headers=login(demo, "student2")).status_code == 200     # signed-in users still read
 
 
 def test_guest_cannot_see_unarchived_work(client):
@@ -36,7 +62,7 @@ def test_guest_cannot_see_unarchived_work(client):
 
 
 def test_guest_cannot_use_protected_routes(client):
-    for path in ("/reviews/queue", "/submissions", "/users", "/audit-logs", "/repository", "/dashboard", "/lookups"):
+    for path in ("/verifications/queue", "/submissions", "/users", "/audit-logs", "/repository", "/dashboard", "/lookups"):
         assert client.get(path).status_code == 401, path
 
 
@@ -53,7 +79,7 @@ def test_student_can_register_and_login(client):
     me = client.get("/auth/me", headers=h).json()
     assert me["role"] == "STUDENT" and me["full_name"] == "Carla Reyes" and me["student_number"] == "2023-0101"
     assert client.get("/submissions", headers=h).status_code == 200
-    assert client.get("/reviews/queue", headers=h).status_code == 403
+    assert client.get("/verifications/queue", headers=h).status_code == 403
     acts = [a["action"] for a in client.get("/audit-logs?page_size=200", headers=login(client, "admin")).json()["items"]]
     assert "STUDENT_REGISTERED" in acts
 

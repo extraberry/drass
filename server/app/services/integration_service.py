@@ -76,13 +76,13 @@ def record(db: Session, w: ResearchWork) -> dict:
     d = work_dict(db, w)
     return {"id": d["work_id"], "reference_no": d["reference_no"], "title": d["title"], "abstract": d["abstract"], "year": d["year"],
             "authors": [a["name"] for a in d["authors"]], "program": d["program"], "department": d["department"],
-            "category": d["category"], "adviser": d["adviser"], "keywords": d["keywords"], "archived_at": d["archived_at"]}
+            "category": d["category"], "adviser": d["adviser"], "dean": d["dean"], "keywords": d["keywords"], "archived_at": d["archived_at"]}
 
 
 def list_catalog(db: Session, archived_since: Optional[str], page: int, page_size: int) -> dict:
     if page < 1 or not 1 <= page_size <= 100:
         raise ValidationFailed("Invalid pagination parameters.")
-    stmt = select(ResearchWork).where(ResearchWork.current_status == "ARCHIVED")
+    stmt = select(ResearchWork).where(ResearchWork.current_status == "ARCHIVED", ResearchWork.publication_status == "PUBLIC")   # FR10: only Public works leave the system
     if archived_since:
         try:
             stmt = stmt.where(ResearchWork.archived_at >= datetime.fromisoformat(archived_since))
@@ -95,7 +95,7 @@ def list_catalog(db: Session, archived_since: Optional[str], page: int, page_siz
 
 def get_catalog_record(db: Session, work_id: int) -> dict:
     w = db.get(ResearchWork, work_id)
-    if w is None or w.current_status != "ARCHIVED":
+    if w is None or w.current_status != "ARCHIVED" or w.publication_status != "PUBLIC":
         raise NotFound("Record not found.")
     return record(db, w)
 

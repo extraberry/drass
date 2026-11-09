@@ -5,7 +5,7 @@ from server.app.models import AuditLog, Embedding, ResearchWork
 from server.app.services import index_service
 from server.tests.conftest import STORAGE
 from server.tests.helpers import *   # noqa: F401,F403
-from server.tests.helpers import DEMO_PASSWORD, PDF, ZIP
+from server.tests.helpers import DEMO_PASSWORD, PDF, ZIP, verify
 
 
 def audit_actions(client):
@@ -50,9 +50,9 @@ def test_tc10_deactivated_user_cannot_login(client):
 
 
 # ---------------- RBAC ----------------
-def test_tc09_external_denied_review_queue_and_audited(client):
+def test_tc09_external_denied_verification_queue_and_audited(client):
     h = login(client, "external1")
-    r = client.get("/reviews/queue", headers=h)
+    r = client.get("/verifications/queue", headers=h)
     assert r.status_code == 403 and r.json()["error_code"] == "FORBIDDEN"
     assert any(a["action"] == "PERMISSION_DENIED" and a["user"] == "external1" for a in audit_actions(client))
 
@@ -68,11 +68,11 @@ def test_external_cannot_submit(client):
     assert client.post("/submissions", headers=login(client, "external1"), json={"title": "x"}).status_code == 403
 
 
-def test_student_cannot_approve(client):
+def test_student_cannot_verify(client):
     h = login(client, "student1")
     wid = ready_submission(client, h)
     assert client.post("/submissions/%d/submit" % wid, headers=h).status_code == 200
-    assert client.post("/reviews/1/approve", headers=h, json={}).status_code == 403
+    assert verify(client, h, wid).status_code == 403
 
 
 def test_other_student_cannot_see_private_submission(client):
@@ -149,98 +149,128 @@ def test_replace_manuscript_keeps_single_active(client):
     assert any(a["action"] == "FILE_REPLACED" for a in audit_actions(client))
 
 
-# ---------------- workflow ----------------
-def test_tc03_approval_chain_and_history(client):
+# ---------------- workflow (manuscript: Pending Verification -> Returned / Archived) ----------------
+def _pending(client, **kw):
     sh = login(client, "student1")
-    wid = ready_submission(client, sh)
+    wid = ready_submission(client, sh, **kw)
     r = client.post(f"/submissions/{wid}/submit", headers=sh)
-    assert r.json()["status"] == "UNDER_ADVISER_REVIEW"
+    assert r.status_code == 200 and r.json()["status"] == "PENDING_VERIFICATION", r.text
+    return sh, wid
+
+
+def test_tc03_verification_archives_and_records_the_approver(client):
+    sh, wid = _pending(client)
     archive_chain(client, wid)
     d = client.get(f"/submissions/{wid}", headers=sh).json()
-    assert d["status"] == "ARCHIVED" and d["archived_at"]
-    stages = [x["stage"] for x in d["review_history"]]
-    assert stages == ["ADVISER", "PANEL", "PANEL", "DEAN", "HEAD_LIBRARIAN"]
-    assert all(x["decided_at"] for x in d["review_history"])
+    assert d["status"] == "ARCHIVED" and d["archived_at"] and d["publication_status"] == "PUBLIC"
+    assert d["archived_by"] == "Lorenzo Santos"
+    assert [h["result"] for h in d["verification_history"]] == ["APPROVE"]
+    assert all(d["verification_history"][0]["checklist"].values())
     with SessionLocal() as db:
         assert db.query(Embedding).filter_by(work_id=wid, status="COMPLETE").count() == 1
+    assert any(a["action"] == "RESEARCH_ARCHIVED" for a in audit_actions(client))
 
 
-def test_panel_requires_all_assigned(client):
-    sh = login(client, "student1")
+def test_only_the_head_librarian_can_verify(client):
+    _, wid = _pending(client)
+    assert verify(client, login(client, "libstaff1"), wid).status_code == 403          # Library Staff, not the head
+    for u in ("faculty1", "student2", "external1", "admin"):
+        assert verify(client, login(client, u), wid).status_code == 403, u
+    assert client.get(f"/submissions/{wid}", headers=login(client, "student1")).json()["status"] == "PENDING_VERIFICATION"
+
+
+def test_library_staff_can_see_the_queue_but_not_act(client):
+    _, wid = _pending(client)
+    r = client.get("/verifications/queue", headers=login(client, "libstaff1")).json()
+    assert [i["work_id"] for i in r["items"]] == [wid] and r["can_verify"] is False
+    assert client.get("/verifications/queue", headers=login(client, "headlibrarian")).json()["can_verify"] is True
+    assert client.get("/verifications/queue", headers=login(client, "admin")).status_code == 403
+
+
+def test_incomplete_checklist_cannot_be_approved(client):
+    sh, wid = _pending(client)
+    hl = login(client, "headlibrarian")
+    r = verify(client, hl, wid, "APPROVE", dean_signed=False)
+    assert r.status_code == 422
+    assert client.get(f"/submissions/{wid}", headers=sh).json()["status"] == "PENDING_VERIFICATION"
+
+
+def test_tc04_return_with_remarks_then_resubmit_then_archive(client):
+    sh, hl = login(client, "student1"), login(client, "headlibrarian")
     wid = ready_submission(client, sh)
     client.post(f"/submissions/{wid}/submit", headers=sh)
-    decide(client, login(client, "adviser1"), wid, "approve")
-    r = decide(client, login(client, "panelist1"), wid, "approve")
-    assert r.json()["status"] == "UNDER_PANEL_REVIEW" and r.json()["stage_complete"] is False
-    assert client.get("/reviews/queue", headers=login(client, "panelist1")).json()["items"] == []   # no second decision possible
-    r = decide(client, login(client, "panelist2"), wid, "approve")
-    assert r.json()["status"] == "UNDER_DEAN_REVIEW"
-
-
-def test_tc04_return_revision_resubmit(client):
-    sh, ah = login(client, "student1"), login(client, "adviser1")
-    wid = ready_submission(client, sh)
-    client.post(f"/submissions/{wid}/submit", headers=sh)
-    assert decide(client, ah, wid, "return", "").status_code == 422                 # comments required
-    r = decide(client, ah, wid, "return", "Please expand chapter 3")
-    assert r.json()["status"] == "RETURNED_FOR_REVISION"
+    assert verify(client, hl, wid, "RETURN", remarks="").status_code == 422             # remarks required
+    r = verify(client, hl, wid, "RETURN", remarks="Dean's signature is missing", dean_signed=False)
+    assert r.status_code == 200 and r.json()["status"] == "RETURNED"
     d = client.get(f"/submissions/{wid}", headers=sh).json()
-    assert d["review_history"][0]["comments"] == "Please expand chapter 3"
+    assert d["verification_history"][0]["remarks"] == "Dean's signature is missing"
+    assert d["verification_history"][0]["checklist"]["dean_signed"] is False
     assert client.post(f"/submissions/{wid}/resubmit", headers=sh, json={"change_notes": " "}).status_code == 422
-    assert client.patch(f"/submissions/{wid}", headers=sh, json={"abstract": "Expanded abstract text."}).status_code == 200
-    r = client.post(f"/submissions/{wid}/resubmit", headers=sh, json={"change_notes": "Expanded chapter 3"})
-    assert r.status_code == 200 and r.json()["status"] == "UNDER_ADVISER_REVIEW"
+    assert upload(client, sh, wid).status_code == 200                                    # corrected final PDF
+    r = client.post(f"/submissions/{wid}/resubmit", headers=sh, json={"change_notes": "Added the dean's signature"})
+    assert r.status_code == 200 and r.json()["status"] == "PENDING_VERIFICATION"
     d = client.get(f"/submissions/{wid}", headers=sh).json()
     assert [x["revision_number"] for x in d["revisions"]] == [1, 2]
-    assert len(d["review_history"]) == 1                                              # earlier review preserved
-    assert decide(client, ah, wid, "approve").json()["status"] == "UNDER_PANEL_REVIEW"
+    assert len(d["verification_history"]) == 1                                           # earlier verification preserved
+    archive_chain(client, wid)
 
 
-def test_tc05_reject_retained_not_searchable(client):
-    sh, ah = login(client, "student1"), login(client, "adviser1")
-    wid = ready_submission(client, sh, title="Zebra Crossing Radar Prototype", abstract="Zebra crossing radar detection.")
-    client.post(f"/submissions/{wid}/submit", headers=sh)
-    assert decide(client, ah, wid, "reject", "").status_code == 422                   # reason required
-    r = decide(client, ah, wid, "reject", "Out of program scope")
-    assert r.json()["status"] == "REJECTED"
-    d = client.get(f"/submissions/{wid}", headers=sh).json()
-    assert d["status"] == "REJECTED" and d["review_history"][0]["comments"] == "Out of program scope"
-    eh = login(client, "external1")
-    assert client.get("/repository", headers=eh).json()["total"] == 0
-    s = client.post("/search/semantic", headers=eh, json={"query": "zebra crossing radar detection"}).json()
-    assert s["count"] == 0
-    assert client.post("/reviews/1/approve", headers=ah, json={}).status_code in (404, 409, 403)
+def test_there_is_no_reject_and_no_in_system_adviser_review(client):
+    _, wid = _pending(client)
+    hl = login(client, "headlibrarian")
+    assert client.post(f"/verifications/{wid}", headers=hl, json={"decision": "REJECT", "remarks": "no"}).status_code == 422
+    assert client.get("/reviews/queue", headers=login(client, "faculty1")).status_code == 404
+    assert client.post(f"/admin/works/{wid}/override-approve", headers=login(client, "admin"), json={}).status_code in (404, 405)
 
 
 def test_stale_version_rejected(client):
-    sh = login(client, "student1")
-    wid = ready_submission(client, sh)
-    client.post(f"/submissions/{wid}/submit", headers=sh)
-    r = decide(client, login(client, "adviser1"), wid, "approve", expected_version=999)
+    _, wid = _pending(client)
+    r = verify(client, login(client, "headlibrarian"), wid, expected_version=999)
     assert r.status_code == 409 and r.json()["error_code"] == "STALE_STATE"
 
 
 def test_cannot_resubmit_non_returned_or_submit_twice(client):
-    sh = login(client, "student1")
-    wid = ready_submission(client, sh)
-    client.post(f"/submissions/{wid}/submit", headers=sh)
+    sh, wid = _pending(client)
     assert client.post(f"/submissions/{wid}/submit", headers=sh).status_code == 409
     assert client.post(f"/submissions/{wid}/resubmit", headers=sh, json={"change_notes": "x"}).status_code == 409
     assert client.patch(f"/submissions/{wid}", headers=sh, json={"title": "Edited"}).status_code == 409
 
 
-def test_archive_blocked_when_manuscript_missing(client):
+def test_adviser_and_dean_are_required_and_must_be_faculty(client):
     sh = login(client, "student1")
     wid = ready_submission(client, sh)
-    client.post(f"/submissions/{wid}/submit", headers=sh)
-    for u in ("adviser1", "panelist1", "panelist2", "dean"):
-        decide(client, login(client, u), wid, "approve")
+    lk = lookups(client, sh)
+    assert client.patch(f"/submissions/{wid}", headers=sh, json={"dean_id": None}).status_code in (200, 422)
+    admin_id = next(u["user_id"] for u in client.get("/users", headers=login(client, "admin")).json()["items"] if u["username"] == "admin")
+    r = client.patch(f"/submissions/{wid}", headers=sh, json={"dean_id": admin_id})
+    assert r.status_code == 422 and "dean_id" in r.json()["fields"]
+    assert lk["faculty"] and all(f["id"] != admin_id for f in lk["faculty"])
+
+
+def test_category_is_optional(client):
+    sh = login(client, "student1")
+    wid = ready_submission(client, sh)
+    assert client.get(f"/submissions/{wid}", headers=sh).json()["category_id"] is None
+    assert client.post(f"/submissions/{wid}/submit", headers=sh).status_code == 200
+
+
+def test_archive_blocked_when_manuscript_missing(client):
+    sh, wid = _pending(client)
     for f in os.listdir(os.path.join(STORAGE, "manuscripts")):
         os.remove(os.path.join(STORAGE, "manuscripts", f))
-    r = decide(client, login(client, "headlibrarian"), wid, "approve")
+    r = verify(client, login(client, "headlibrarian"), wid)                              # archiving is blocked (NFR2)
     assert r.status_code == 500 and r.json()["error_code"] == "STORAGE_ERROR"
-    assert client.get(f"/submissions/{wid}", headers=sh).json()["status"] == "UNDER_HEAD_LIBRARIAN_REVIEW"
+    assert client.get(f"/submissions/{wid}", headers=sh).json()["status"] == "PENDING_VERIFICATION"
     assert any(a["action"] == "ARCHIVE_FAILED" for a in audit_actions(client))
+
+
+def test_roles_are_the_five_manuscript_roles(client):
+    ah = login(client, "admin")
+    roles = client.get("/lookups", headers=ah).json()["roles"]
+    assert set(roles) == {"STUDENT", "FACULTY", "LIBRARY_STAFF", "ADMIN", "EXTERNAL_USER"}
+    for role in ("PANELIST", "DEAN", "ADVISER", "HEAD_LIBRARIAN"):
+        body = {"username": "x" + role.lower(), "password": "Drass2026", "role": role, "full_name": "X", "email": "x@x.xx"}
+        assert client.post("/users", headers=ah, json=body).status_code == 422
 
 
 # ---------------- search / recommendations ----------------
@@ -316,7 +346,7 @@ def test_tc12_embedding_failure_keeps_archive_and_retry(client, monkeypatch):
 
 
 def test_metadata_edit_marks_and_reindexes(demo):
-    lh = login(demo, "librarian")
+    lh = login(demo, "headlibrarian")
     wid = demo.get("/repository", headers=lh).json()["items"][0]["work_id"]
     r = demo.patch(f"/repository/{wid}", headers=lh, json={"title": "Edited Title For Reindex"})
     assert r.status_code == 200
@@ -350,12 +380,10 @@ def test_reports_rbac_and_content(demo):
     sh = login(demo, "student1")
     wid = ready_submission(demo, sh)
     demo.post(f"/submissions/{wid}/submit", headers=sh)
-    assert demo.get("/reports/user-activity", headers=sh).status_code == 403
-    assert demo.get("/reports/submissions", headers=login(demo, "external1")).status_code == 403
-    mine = demo.get("/reports/submissions", headers=sh).json()
-    assert mine["count"] == 1
+    for u in ("student1", "faculty1", "headlibrarian", "libstaff1", "external1"):          # reports are Administrator-only (FR16)
+        assert demo.get("/reports/submissions", headers=login(demo, u)).status_code == 403, u
     admin = login(demo, "admin")
-    assert demo.get("/reports/pending-reviews", headers=admin).json()["count"] == 1
+    assert demo.get("/reports/pending-verification", headers=admin).json()["count"] == 1
     assert demo.get("/reports/archived", headers=admin).json()["count"] == 12
     assert demo.get("/reports/user-activity", headers=admin).json()["count"] > 0
     assert demo.get("/reports/system-activity", headers=admin).status_code == 200
@@ -369,10 +397,10 @@ def test_tc11_audit_records_complete(client):
     sh = login(client, "student1")
     wid = ready_submission(client, sh)
     client.post(f"/submissions/{wid}/submit", headers=sh)
-    decide(client, login(client, "adviser1"), wid, "approve")
+    archive_chain(client, wid)
     rows = audit_actions(client)
     actions = {r["action"] for r in rows}
-    assert {"LOGIN_SUCCESS", "SUBMISSION_CREATED", "FILE_UPLOADED", "SUBMISSION_SUBMITTED", "REVIEW_APPROVED"} <= actions
+    assert {"LOGIN_SUCCESS", "SUBMISSION_CREATED", "FILE_UPLOADED", "SUBMISSION_SUBMITTED", "RESEARCH_ARCHIVED"} <= actions
     assert all(r["timestamp"] and r["action"] and r["result"] for r in rows)
     assert client.delete("/audit-logs/1", headers=login(client, "admin")).status_code in (404, 405)
 
@@ -388,7 +416,7 @@ def test_admin_user_management_and_settings(client):
     assert client.post("/users", headers=a, json={"username": "newuser", "password": "longenough1", "role": "STUDENT",
                                                    "full_name": "N U", "email": "n2@x.io"}).status_code == 409
     uid = ok.json()["user_id"]
-    assert client.patch(f"/users/{uid}", headers=a, json={"role": "ADVISER"}).json()["role"] == "ADVISER"
+    assert client.patch(f"/users/{uid}", headers=a, json={"role": "FACULTY"}).json()["role"] == "FACULTY"
     assert client.put("/admin/settings", headers=a, json={"values": {"semantic_threshold": "7"}}).status_code == 422
     assert client.put("/admin/settings", headers=a, json={"values": {"semantic_threshold": "0.4"}}).status_code == 200
     acts = [r["action"] for r in client.get("/audit-logs?page_size=200", headers=a).json()["items"]]
@@ -398,7 +426,9 @@ def test_admin_user_management_and_settings(client):
 
 
 def test_dashboards_per_role(demo):
-    assert "pending_reviews" in demo.get("/dashboard", headers=login(demo, "adviser1")).json()
+    assert "pending_verification" in demo.get("/dashboard", headers=login(demo, "headlibrarian")).json()
+    assert "verified_total" in demo.get("/dashboard", headers=login(demo, "headlibrarian")).json()
+    assert "verified_total" not in demo.get("/dashboard", headers=login(demo, "libstaff1")).json()
     assert "total_works" in demo.get("/dashboard", headers=login(demo, "admin")).json()
     assert "submissions" in demo.get("/dashboard", headers=login(demo, "student1")).json()
     assert demo.get("/dashboard", headers=login(demo, "external1")).json()["archived"] == 12

@@ -1,9 +1,9 @@
-# ResearchVault — Digital Research Archiving System with Semantic Search
-*(formerly "DRASS"; internal names such as the `drass` database, `drass_user` and the project folder are unchanged on purpose.)*
+# DRASS — Digital Research Archiving System with Semantic Search
+*(Earlier builds were branded "ResearchVault"; the name is now DRASS everywhere. Internal names such as the `drass` database, `drass_user` and the project folder are unchanged.)*
 **Mary the Queen College of Quezon City, Inc.** — desktop research archive for newly submitted theses and capstone projects.
 
 > **Status:** all code in this repository was written without being able to install the dependencies or run MySQL in the authoring sandbox.
-> Only the pure-Python domain tests (`server/tests/test_domain.py`, 21 tests) were executed there. The API, database layer, client and
+> Only the pure-Python tests (`server/tests/test_domain.py`, 43 tests, and `server/tests/test_migration.py`, 9 tests) were executed there. The API, database layer, client and
 > integration tests have **not yet been run**. Run the checklist in `docs/DEBUGGING.md` first and expect to fix some first-run errors.
 > See `docs/IMPLEMENTATION_STATUS.md` for the honest per-feature status.
 
@@ -39,12 +39,28 @@ Python 3.11/3.12, MySQL 8.x, ~3 GB disk (PyTorch + model). Internet is needed **
 `.venv\Scripts\python.exe -m pytest` (uses SQLite + a test-only hash embedder; no MySQL needed). Details: `docs/TESTING.md`.
 
 ## Campus deployment
-One server PC (FastAPI + MySQL + storage + model), many clients over LAN with `DRASS_SERVER_URL=http://<server-ip>:8000`. Open TCP 8000 on the server's firewall for the LAN only. Set `ENABLE_DOCS=false`. Backups: `scripts/backup_database.py` plus copying `storage/` — the institution is responsible for storage, backups, power and infrastructure. No data leaves the campus; no external API is used.
-
-## Upgrading an existing database (guest access + student sign-up)
-1. `.venv\Scripts\python.exe scripts\setup_db.py` — creates the new `student_roster` table and adds demo roster rows (existing data is kept).
-2. In MySQL Workbench run: `ALTER TABLE drass.users ADD UNIQUE INDEX uq_users_student_number (student_number);` (enforces one account per student).
-3. Restart the server and the client. The client now opens in Guest mode.
+One server PC (FastAPI + MySQL + storage + model), many clients over LAN with `DRASS_SERVER_URL=http://<server-ip>:8000`. Open TCP 8000 on the server's firewall for the LAN only. Set `ENABLE_DOCS=false`. Backups: `scripts\backup_now.bat` (database + research files + manifest; schedule it with Task Scheduler) and *Administrator -> Backup & Recovery* — the institution is responsible for storage, backups, power and infrastructure. No data leaves the campus; no external API is used.
 
 ## Integration API
 After copying the update, run `.venv\Scripts\python.exe scripts\setup_db.py` once (creates the `api_keys` table; no ALTER needed). Admin: *Integrations (API keys)*. Details: `docs/INTEGRATION.md`.
+
+## Roles and workflow (aligned with the Chapter 3 manuscript)
+Roles: STUDENT, FACULTY, LIBRARY_STAFF, ADMIN, EXTERNAL_USER (visitors without an account act as guests). The **Head Librarian** is a Library Staff account designated by the Administrator (*Users -> Head Librarian*). 
+Workflow: the Student submits one final PDF (manuscript + signed approval sheet) with title, abstract, keywords, authors, year, course, department, adviser and dean -> **Pending Verification** -> the Head Librarian ticks the signatory checklist (Adviser, Panelists, Dean, Researchers, sheet complete): incomplete -> **Returned** with remarks (the student resubmits); complete -> **Archived** with a publication status (Public / Restricted / Unpublished) and indexing for semantic search. Signatures are collected outside the system.
+The Administrator manages users, roles, settings, reports, logs, indexing, backup and restoration, and cannot search or read research. Library Staff maintain metadata and publication status. Full details: `docs/WORKFLOWS.md`, `docs/MANUSCRIPT_ALIGNMENT.md`.
+
+## Upgrading an existing database to the manuscript version
+1. Stop the server and make a backup: `scripts\backup_now.bat`.
+2. Copy the new files over the project (keep `.env`, `.venv`, `storage`, `models`).
+3. Double-click `scripts\update_database.bat` (backup, then `align_database_to_manuscript.py` - type YES - then re-indexing). It adds the new columns and table, maps the old roles and statuses, and sets archived research to Public.
+4. In *Administrator -> Users* make sure one Library Staff account has *Head Librarian* ticked (former Head Librarians are set automatically).
+5. Start the server and the client; run `.venv\Scripts\python.exe -m pytest`.
+
+## Upload limits
+Research document (PDF) 100 MB, source code (.zip/.7z/.rar) 500 MB, video (.mp4/.mov/.webm) 500 MB, other supporting files 500 MB. The limits are written next to each upload button in the submission form; ADMIN can change them in *System Settings*.
+
+## Backup and restoration
+See `docs/BACKUP_AND_SYNC.md` (backup sets, restoration and the Task Scheduler setup).
+
+## Change log
+All changes by round: `docs/CHANGELOG.md`.

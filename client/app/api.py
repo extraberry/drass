@@ -1,4 +1,4 @@
-"""HTTP client for the ResearchVault server. The desktop client never talks to MySQL."""
+"""HTTP client for the DRASS server. The desktop client never talks to MySQL."""
 import os
 from typing import Callable, Optional
 import requests
@@ -37,7 +37,7 @@ class ApiClient:
             code, msg, fields = "HTTP_ERROR", "", None
         raise ApiError(code, FRIENDLY.get(code) or msg or f"The server returned an error ({r.status_code}).", r.status_code, fields)
 
-    PUBLIC_PREFIXES = ("/lookups", "/repository", "/search/semantic", "/recommendations")
+    PUBLIC_PREFIXES = ("/lookups", "/repository", "/search/semantic", "/recommendations", "/reader")
 
     def request(self, method: str, path: str, **kw):
         if not self.token:                                  # guest: use the unauthenticated, read-only endpoints
@@ -50,7 +50,7 @@ class ApiClient:
         try:
             r = self.http.request(method, self.base + path, **kw)
         except requests.exceptions.ConnectionError:
-            raise ApiError("SERVER_UNREACHABLE", "Cannot reach the ResearchVault server. Check that it is running and that you are on the campus network.")
+            raise ApiError("SERVER_UNREACHABLE", "Cannot reach the DRASS server. Check that it is running and that you are on the campus network.")
         except requests.exceptions.Timeout:
             raise ApiError("TIMEOUT", "The server took too long to respond. Please try again.")
         if r.status_code >= 400:
@@ -60,8 +60,8 @@ class ApiClient:
     def get(self, path, **params):
         return self.request("GET", path, params={k: v for k, v in params.items() if v not in (None, "")}).json()
 
-    def post(self, path, json=None):
-        return self.request("POST", path, json=json if json is not None else {}).json()
+    def post(self, path, json=None, timeout=30):
+        return self.request("POST", path, json=json if json is not None else {}, timeout=timeout).json()
 
     def patch(self, path, json):
         return self.request("PATCH", path, json=json).json()
@@ -99,6 +99,9 @@ class ApiClient:
 
     def report_csv(self, kind: str, params: dict) -> bytes:
         return self.request("GET", f"/reports/{kind}", params={**params, "format": "csv"}).content
+
+    def download(self, path: str) -> bytes:
+        return self.request("GET", path).content
 
     def upload(self, work_id: int, file_type: str, path: str, progress: Optional[Callable[[int], None]] = None) -> dict:
         """Stream a file with a real Content-Length (a generator + Content-Length header breaks the request)."""

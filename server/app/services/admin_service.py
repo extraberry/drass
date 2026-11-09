@@ -6,8 +6,9 @@ from ..domain import auth_rules as ar
 from ..domain.enums import Role, Status
 from ..domain.errors import Conflict, NotFound, ValidationFailed
 from ..models import (AuditLog, Department, Embedding, Notification, Program, ResearchCategory, ResearchWork,
-                      Review, ReviewAssignment, Role as RoleModel, User)
+                      SignatoryVerification, Role as RoleModel, User)
 from . import auth_service
+from .repository_service import archived_visibility
 from .common import audit, auth_policy
 
 
@@ -29,9 +30,11 @@ def create_user(db: Session, actor: User, d: dict) -> User:
         raise Conflict("An account already exists for this student number.")
     u = User(username=d["username"], password_hash=hash_password(d["password"]), role_id=role.role_id,
              full_name=d["full_name"], email=d["email"], student_number=d.get("student_number"),
-             department_id=d.get("department_id"))
+             department_id=d.get("department_id"),
+             is_head_librarian=bool(d.get("is_head_librarian")) and role.role_name == Role.LIBRARY_STAFF.value)
     db.add(u); db.flush()
-    audit(db, actor.user_id, "USER_CREATED", "user", u.user_id, details=f"role={role.role_name}")
+    audit(db, actor.user_id, "USER_CREATED", "user", u.user_id,
+          details=f"role={role.role_name}" + (" head_librarian" if u.is_head_librarian else ""))
     db.commit()
     return db.get(User, u.user_id)
 
@@ -45,7 +48,10 @@ def patch_user(db: Session, actor: User, user_id: int, d: dict) -> User:
             raise ValidationFailed("You cannot change your own role.")
         old = u.role.role_name
         u.role_id = _role(db, d["role"]).role_id
+        if d["role"] != Role.LIBRARY_STAFF.value:
+            u.is_head_librarian = False                       # only Library Staff can be the Head Librarian
         audit(db, actor.user_id, "ROLE_CHANGED", "user", u.user_id, details=f"{old} -> {d['role']}")
+        db.flush(); db.refresh(u)
     new_name = (d.get("username") or "").strip()
     if new_name and new_name != u.username:
         if db.scalar(select(User).where(func.lower(User.username) == new_name.lower(), User.user_id != u.user_id)):
@@ -55,6 +61,11 @@ def patch_user(db: Session, actor: User, user_id: int, d: dict) -> User:
         audit(db, actor.user_id, "USERNAME_CHANGED", "user", u.user_id, details=f"{old} -> {new_name}")
         if u.user_id != actor.user_id:
             auth_service.revoke_all_sessions(db, u.user_id)       # they must sign in again with the new username
+    if d.get("is_head_librarian") is not None and bool(d["is_head_librarian"]) != bool(u.is_head_librarian):
+        if d["is_head_librarian"] and u.role.role_name != Role.LIBRARY_STAFF.value:
+            raise ValidationFailed("Only a Library Staff account can be designated as Head Librarian.", {"is_head_librarian": "Library Staff only."})
+        u.is_head_librarian = bool(d["is_head_librarian"])
+        audit(db, actor.user_id, "HEAD_LIBRARIAN_DESIGNATION_CHANGED", "user", u.user_id, details=f"is_head_librarian={u.is_head_librarian}")
     for f in ("full_name", "email", "student_number", "department_id"):
         if d.get(f) is not None:
             if f == "email" and db.scalar(select(User).where(User.email == d[f], User.user_id != u.user_id)):
@@ -167,27 +178,20 @@ def dashboard(db: Session, user: User) -> dict:
     if role == "STUDENT":
         mine = db.scalars(select(W).where(W.submitted_by == user.user_id).order_by(W.updated_at.desc())).all()
         out["submissions"] = [{"work_id": w.work_id, "title": w.title or "(untitled)", "status": w.current_status} for w in mine]
-    elif role in ("ADVISER", "PANELIST", "DEAN", "HEAD_LIBRARIAN"):
-        pend = _count(db, select(func.count()).select_from(ReviewAssignment).where(
-            ReviewAssignment.reviewer_id == user.user_id, ReviewAssignment.status == "PENDING"))
-        out["pending_reviews"] = pend
-        out["reviewed_total"] = _count(db, select(func.count()).select_from(Review).where(Review.reviewer_id == user.user_id))
-        if role == "DEAN":
-            out["department_archived"] = _count(db, select(func.count()).select_from(W).where(
-                W.current_status == "ARCHIVED", W.department_id == user.department_id))
-        if role == "ADVISER":
-            out["advisees"] = _count(db, select(func.count(func.distinct(W.submitted_by))).where(W.adviser_id == user.user_id))
-    if role in ("LIBRARY_STAFF", "HEAD_LIBRARIAN", "ADMIN"):
+    elif role == "LIBRARY_STAFF":
+        out["pending_verification"] = by_status.get("PENDING_VERIFICATION", 0)
         out["archived"] = by_status.get("ARCHIVED", 0)
-        out["indexing_failures"] = _count(db, select(func.count()).select_from(Embedding).where(Embedding.status == "FAILED"))
-    if role == "EXTERNAL_USER":
-        out["archived"] = by_status.get("ARCHIVED", 0)
+        out["returned"] = by_status.get("RETURNED", 0)
+        if user.is_head_librarian:
+            out["verified_total"] = _count(db, select(func.count()).select_from(SignatoryVerification).where(SignatoryVerification.verified_by == user.user_id))
+    elif role in ("FACULTY", "EXTERNAL_USER"):
+        out["archived"] = _count(db, select(func.count()).select_from(W).where(archived_visibility(user)))
     if role == "ADMIN":
         out.update(total_works=sum(by_status.values()), by_status=by_status,
-                   pending_submissions=by_status.get("SUBMITTED", 0),
-                   pending_adviser=by_status.get("UNDER_ADVISER_REVIEW", 0), pending_panel=by_status.get("UNDER_PANEL_REVIEW", 0),
-                   pending_dean=by_status.get("UNDER_DEAN_REVIEW", 0), pending_librarian=by_status.get("UNDER_HEAD_LIBRARIAN_REVIEW", 0),
-                   rejected=by_status.get("REJECTED", 0),
+                   pending_verification=by_status.get("PENDING_VERIFICATION", 0),
+                   returned=by_status.get("RETURNED", 0),
+                   archived=by_status.get("ARCHIVED", 0),
+                   indexing_failures=_count(db, select(func.count()).select_from(Embedding).where(Embedding.status == "FAILED")),
                    active_users=_count(db, select(func.count()).select_from(User).where(User.status == "ACTIVE")),
                    inactive_users=_count(db, select(func.count()).select_from(User).where(User.status != "ACTIVE")),
                    failed_logins=_count(db, select(func.count()).select_from(AuditLog).where(AuditLog.action == "LOGIN_FAILED")))

@@ -18,11 +18,13 @@ SETTING_SPECS = {
     "lockout_minutes": ("15", int, 1, 1440),
     "idle_timeout_minutes": ("20", int, 1, 1440),
     "max_manuscript_mb": ("100", int, 1, 2048),
+    "max_source_code_mb": ("500", int, 1, 4096),
+    "max_video_mb": ("500", int, 1, 4096),
     "max_companion_mb": ("500", int, 1, 4096),
-    "semantic_threshold": ("0.35", float, 0.0, 1.0),
+    "semantic_threshold": ("0.25", float, 0.0, 1.0),
+    "guest_reading_enabled": ("true", bool, None, None),
     "recommendation_count": ("5", int, 1, 20),
     "log_search_queries": ("true", bool, None, None),
-    "offline_panel_skips_dean": ("true", bool, None, None),   # panel approved offline -> straight to Head Librarian
 }
 
 

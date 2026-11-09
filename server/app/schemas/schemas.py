@@ -20,6 +20,7 @@ class SubmissionIn(BaseModel):
     department_id: Optional[int] = None
     category_id: Optional[int] = None
     adviser_id: Optional[int] = None
+    dean_id: Optional[int] = None
     authors: Optional[list[AuthorIn]] = Field(None, max_length=10)
     keywords: Optional[list[str]] = Field(None, max_length=15)
 
@@ -28,15 +29,21 @@ class ResubmitIn(BaseModel):
     change_notes: str = Field(min_length=1, max_length=5000)
 
 
-class ReviewActionIn(BaseModel):
-    comments: str = Field("", max_length=5000)
+class VerificationIn(BaseModel):
+    """Head Librarian's signatory verification (FR5, FR6)."""
+    decision: str = Field(pattern="^(APPROVE|RETURN)$")
+    adviser_signed: bool = False
+    panelists_signed: bool = False
+    dean_signed: bool = False
+    researchers_signed: bool = False
+    sheet_complete: bool = False
+    remarks: str = Field("", max_length=5000)
+    publication_status: Optional[str] = Field(None, pattern="^(PUBLIC|RESTRICTED|UNPUBLISHED)$")
     expected_version: Optional[int] = None
-    panel_offline: bool = False                                   # adviser approve only: panel already approved outside the system
-    panel_offline_reference: str = Field("", max_length=300)      # e.g. letter date / reference no. (required when panel_offline)
 
 
-class PanelIn(BaseModel):
-    panelist_ids: list[int] = Field(min_length=1, max_length=10)
+class PublicationIn(BaseModel):
+    publication_status: str = Field(pattern="^(PUBLIC|RESTRICTED|UNPUBLISHED)$")
 
 
 class SearchFilters(BaseModel):
@@ -44,13 +51,14 @@ class SearchFilters(BaseModel):
     department_id: Optional[int] = None
     year: Optional[int] = None
     adviser_id: Optional[int] = None
+    dean_id: Optional[int] = None
     category_id: Optional[int] = None
     author: Optional[str] = Field(None, max_length=200)
     keyword: Optional[str] = Field(None, max_length=80)
 
 
 class SemanticSearchIn(BaseModel):
-    query: str = Field(min_length=3, max_length=500)
+    query: str = Field(min_length=2, max_length=500)
     filters: SearchFilters = SearchFilters()
     limit: int = Field(20, ge=1, le=50)
 
@@ -63,6 +71,7 @@ class UserCreateIn(BaseModel):
     email: str = Field(max_length=150, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     student_number: Optional[str] = Field(None, max_length=30)
     department_id: Optional[int] = None
+    is_head_librarian: bool = False
 
 
 class UserPatchIn(BaseModel):
@@ -72,6 +81,7 @@ class UserPatchIn(BaseModel):
     email: Optional[str] = Field(None, max_length=150, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     student_number: Optional[str] = Field(None, max_length=30)
     department_id: Optional[int] = None
+    is_head_librarian: Optional[bool] = None
 
 
 class ProfilePatchIn(BaseModel):
@@ -107,6 +117,12 @@ class MetadataPatchIn(BaseModel):
     abstract: Optional[str] = Field(None, min_length=1, max_length=20000)
     keywords: Optional[list[str]] = Field(None, max_length=15)
     category_id: Optional[int] = None
+    year: Optional[int] = Field(None, ge=1990, le=2100)
+    program_id: Optional[int] = None
+    department_id: Optional[int] = None
+    adviser_id: Optional[int] = None
+    dean_id: Optional[int] = None
+    authors: Optional[list[AuthorIn]] = Field(None, max_length=10)
 
 
 class StudentRegisterIn(BaseModel):
@@ -138,7 +154,6 @@ class RosterSyncIn(BaseModel):
     students: list[dict] = Field(max_length=5000)
 
 
-class OverrideIn(BaseModel):
-    mode: str = Field(pattern="^(next|archive)$")
-    reason: str = Field(min_length=5, max_length=2000)
-    expected_version: Optional[int] = None
+class BackupRestoreIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    confirm: str = Field(max_length=20)            # must be the word RESTORE

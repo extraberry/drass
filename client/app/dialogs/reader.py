@@ -16,8 +16,8 @@ class ReaderDialog(QDialog):
         self.resize(980, 760)
         lay = QVBoxLayout(self)
         bar = QHBoxLayout()
-        self.first, self.prev = button("⏮ First", slot=lambda: self.go(1)), button("◀ Prev", slot=lambda: self.go(self.page - 1))
-        self.next, self.last = button("Next ▶", slot=lambda: self.go(self.page + 1)), button("Last ⏭", slot=lambda: self.go(self.pages))
+        self.first, self.prev = button("<< First", slot=lambda: self.go(1)), button("< Prev", slot=lambda: self.go(self.page - 1))
+        self.next, self.last = button("Next >", slot=lambda: self.go(self.page + 1)), button("Last >>", slot=lambda: self.go(self.pages))
         self.spin = QSpinBox(); self.spin.setMinimum(1); self.spin.editingFinished.connect(lambda: self.go(self.spin.value()))
         self.count = QLabel("/ …")
         for w in (self.first, self.prev, self.spin, self.count, self.next, self.last):

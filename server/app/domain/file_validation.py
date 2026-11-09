@@ -17,6 +17,18 @@ ALLOWED_EXT = {
 }
 
 
+LABELS = {FileType.MANUSCRIPT: "Research document (PDF)", FileType.SOURCE_CODE: "Source code (compressed archive)",
+          FileType.VIDEO: "Video", FileType.OTHER_COMPANION: "Other supporting files"}
+
+
+def describe_limits(limits_mb: dict | None = None) -> list[dict]:
+    """What the upload screen shows: for every kind of file, the maximum size and the accepted formats."""
+    limits = {**DEFAULT_LIMITS_MB, **(limits_mb or {})}
+    return [{"file_type": t.value, "label": LABELS[t], "max_mb": int(limits[t]),
+             "extensions": sorted(ALLOWED_EXT[t])} for t in (FileType.MANUSCRIPT, FileType.SOURCE_CODE,
+                                                              FileType.VIDEO, FileType.OTHER_COMPANION)]
+
+
 def _signature_ok(ext: str, head: bytes) -> bool:
     if ext in (".docx", ".pptx", ".xlsx"):
         return head[:2] == b"PK"
@@ -52,7 +64,7 @@ def validate_upload(file_type: FileType, filename: str, head: bytes, size: int,
     if size <= 0:
         raise ValidationFailed("The file is empty.")
     if size > limits[file_type] * MB:
-        raise ValidationFailed(f"File exceeds the {limits[file_type]} MB limit.")
+        raise ValidationFailed(f"This file is {size / MB:.1f} MB. The limit for {LABELS[file_type].lower()} is {limits[file_type]} MB.")
     if allowed is not None and not _signature_ok(ext, head):
         raise ValidationFailed("File content does not match its extension.")
     return ext

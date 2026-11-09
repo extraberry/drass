@@ -1,18 +1,18 @@
-"""Seven required reports, RBAC-scoped (PRD s30, s63)."""
+"""Administrative reports and activity records (manuscript FR16): submissions, approvals, returns, pending verification,
+archived research, user activity and system activity. Administrator only; every report can be exported as CSV."""
 import csv
 import io
 from datetime import datetime, timedelta
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 from ..domain.errors import Forbidden, ValidationFailed
-from ..models import (ActivityLog, AuditLog, Department, Program, ResearchWork, Review, ReviewAssignment,
+from ..models import (ActivityLog, AuditLog, Department, Program, ResearchWork, SignatoryVerification,
                       Role as RoleModel, User)
 from ..core.timeutil import utcnow
 from .common import activity
 from .serializers import STATUS_LABELS
 
-KINDS = ("submissions", "approvals", "rejections", "pending-reviews", "archived", "user-activity", "system-activity")
-ADMIN_ONLY = {"user-activity", "system-activity"}
+KINDS = ("submissions", "approvals", "returns", "pending-verification", "archived", "user-activity", "system-activity")
 MAX_ROWS = 5000
 
 
@@ -27,19 +27,10 @@ def _date(s, end=False):
 
 
 def _scope(db: Session, user: User):
-    """SQL condition limiting which works a role may see in reports."""
-    r = user.role.role_name
-    if r in ("ADMIN", "LIBRARY_STAFF", "HEAD_LIBRARIAN"):
-        return None
-    if r == "DEAN":
-        return ResearchWork.department_id == user.department_id
-    if r == "ADVISER":
-        return ResearchWork.adviser_id == user.user_id
-    if r == "PANELIST":
-        return ResearchWork.work_id.in_(select(ReviewAssignment.work_id).where(ReviewAssignment.reviewer_id == user.user_id))
-    if r == "STUDENT":
-        return ResearchWork.submitted_by == user.user_id
-    raise Forbidden("You do not have permission to view reports.")
+    """Reports are an Administrator function (Table 13); there is no per-record scoping."""
+    if user.role.role_name != "ADMIN":
+        raise Forbidden("You do not have permission to view reports.")
+    return None
 
 
 def _name(db, model, pk, col):
@@ -50,8 +41,6 @@ def _name(db, model, pk, col):
 def run(db: Session, user: User, kind: str, f: dict) -> dict:
     if kind not in KINDS:
         raise ValidationFailed("Unknown report.")
-    if kind in ADMIN_ONLY and user.role.role_name != "ADMIN":
-        raise Forbidden("You do not have permission to view this report.")
     scope = _scope(db, user)
     d_from, d_to = _date(f.get("date_from")), _date(f.get("date_to"), end=True)
     fn = globals()["_" + kind.replace("-", "_")]
@@ -76,50 +65,46 @@ def _submissions(db, scope, f, d_from, d_to):
     stmt = _work_filters(select(ResearchWork).where(ResearchWork.submitted_at.is_not(None)), scope, f)
     if d_from: stmt = stmt.where(ResearchWork.submitted_at >= d_from)
     if d_to: stmt = stmt.where(ResearchWork.submitted_at < d_to)
-    cols = ["Reference", "Title", "Submitted by", "Program", "Department", "Status", "Submitted at"]
+    cols = ["Reference", "Title", "Submitted by", "Course", "Department", "Status", "Submitted at"]
     return cols, [[w.reference_no, w.title, _name(db, User, w.submitted_by, "full_name"),
                    _name(db, Program, w.program_id, "program_name"), _name(db, Department, w.department_id, "department_name"),
                    STATUS_LABELS.get(w.current_status), w.submitted_at.isoformat(timespec="minutes")]
                   for w in db.scalars(stmt.order_by(ResearchWork.submitted_at.desc())).all()]
 
 
+def _verifications(db, scope, f, d_from, d_to, result, columns_last):
+    stmt = (select(SignatoryVerification, ResearchWork)
+            .join(ResearchWork, ResearchWork.work_id == SignatoryVerification.work_id)
+            .where(SignatoryVerification.result == result))
+    stmt = _work_filters(stmt, scope, {k: v for k, v in f.items() if k != "status"})
+    if d_from: stmt = stmt.where(SignatoryVerification.verified_at >= d_from)
+    if d_to: stmt = stmt.where(SignatoryVerification.verified_at < d_to)
+    return db.execute(stmt.order_by(SignatoryVerification.verified_at.desc())).all()
+
+
 def _approvals(db, scope, f, d_from, d_to):
-    stmt = (select(Review, ReviewAssignment, ResearchWork).join(ReviewAssignment, ReviewAssignment.assignment_id == Review.assignment_id)
-            .join(ResearchWork, ResearchWork.work_id == Review.work_id).where(Review.decision == "APPROVE"))
-    stmt = _work_filters(stmt, scope, {k: v for k, v in f.items() if k != "status"})
-    if f.get("stage"): stmt = stmt.where(ReviewAssignment.stage == f["stage"])
-    if d_from: stmt = stmt.where(Review.decided_at >= d_from)
-    if d_to: stmt = stmt.where(Review.decided_at < d_to)
-    cols = ["Reference", "Title", "Stage", "Reviewer", "Decided at"]
-    return cols, [[w.reference_no, w.title, a.stage, _name(db, User, r.reviewer_id, "full_name"),
-                   r.decided_at.isoformat(timespec="minutes")] for r, a, w in db.execute(stmt.order_by(Review.decided_at.desc())).all()]
+    cols = ["Reference", "Title", "Head Librarian", "Publication status", "Approved at"]
+    return cols, [[w.reference_no, w.title, _name(db, User, v.verified_by, "full_name"), w.publication_status or "",
+                   v.verified_at.isoformat(timespec="minutes")] for v, w in _verifications(db, scope, f, d_from, d_to, "APPROVE", None)]
 
 
-def _rejections(db, scope, f, d_from, d_to):
-    stmt = (select(Review, ResearchWork).join(ResearchWork, ResearchWork.work_id == Review.work_id).where(Review.decision == "REJECT"))
-    stmt = _work_filters(stmt, scope, {k: v for k, v in f.items() if k != "status"})
-    if d_from: stmt = stmt.where(Review.decided_at >= d_from)
-    if d_to: stmt = stmt.where(Review.decided_at < d_to)
-    cols = ["Reference", "Title", "Rejected by", "Reason", "Decided at"]
-    return cols, [[w.reference_no, w.title, _name(db, User, r.reviewer_id, "full_name"), r.comments,
-                   r.decided_at.isoformat(timespec="minutes")] for r, w in db.execute(stmt.order_by(Review.decided_at.desc())).all()]
+def _returns(db, scope, f, d_from, d_to):
+    cols = ["Reference", "Title", "Returned by", "Remarks", "Returned at"]
+    return cols, [[w.reference_no, w.title, _name(db, User, v.verified_by, "full_name"), v.remarks,
+                   v.verified_at.isoformat(timespec="minutes")] for v, w in _verifications(db, scope, f, d_from, d_to, "RETURN", None)]
 
 
-def _pending_reviews(db, scope, f, d_from, d_to):
-    stmt = (select(ReviewAssignment, ResearchWork).join(ResearchWork, ResearchWork.work_id == ReviewAssignment.work_id)
-            .where(ReviewAssignment.status == "PENDING"))
-    stmt = _work_filters(stmt, scope, {k: v for k, v in f.items() if k != "status"})
-    if f.get("stage"): stmt = stmt.where(ReviewAssignment.stage == f["stage"])
-    if d_from: stmt = stmt.where(ReviewAssignment.assigned_at >= d_from)
-    if d_to: stmt = stmt.where(ReviewAssignment.assigned_at < d_to)
+def _pending_verification(db, scope, f, d_from, d_to):
+    stmt = _work_filters(select(ResearchWork).where(ResearchWork.current_status == "PENDING_VERIFICATION"), scope,
+                         {k: v for k, v in f.items() if k != "status"})
+    if d_from: stmt = stmt.where(ResearchWork.submitted_at >= d_from)
+    if d_to: stmt = stmt.where(ResearchWork.submitted_at < d_to)
     now = utcnow()
-    cols = ["Reference", "Title", "Stage", "Reviewer", "Assigned at", "Days waiting"]
-    rows = []
-    for a, w in db.execute(stmt.order_by(ReviewAssignment.assigned_at)).all():
-        if w.current_status.startswith("UNDER_"):
-            rows.append([w.reference_no, w.title, a.stage, _name(db, User, a.reviewer_id, "full_name"),
-                         a.assigned_at.isoformat(timespec="minutes"), (now - a.assigned_at).days])
-    return cols, rows
+    cols = ["Reference", "Title", "Submitted by", "Submitted at", "Days waiting"]
+    return cols, [[w.reference_no, w.title, _name(db, User, w.submitted_by, "full_name"),
+                   w.submitted_at.isoformat(timespec="minutes") if w.submitted_at else "",
+                   (now - w.submitted_at).days if w.submitted_at else ""]
+                  for w in db.scalars(stmt.order_by(ResearchWork.submitted_at)).all()]
 
 
 def _archived(db, scope, f, d_from, d_to):
@@ -127,9 +112,10 @@ def _archived(db, scope, f, d_from, d_to):
                          {k: v for k, v in f.items() if k != "status"})
     if d_from: stmt = stmt.where(ResearchWork.archived_at >= d_from)
     if d_to: stmt = stmt.where(ResearchWork.archived_at < d_to)
-    cols = ["Reference", "Title", "Year", "Program", "Department", "Archived at"]
+    cols = ["Reference", "Title", "Year", "Course", "Department", "Publication status", "Approved by", "Archived at"]
     return cols, [[w.reference_no, w.title, w.year, _name(db, Program, w.program_id, "program_name"),
-                   _name(db, Department, w.department_id, "department_name"),
+                   _name(db, Department, w.department_id, "department_name"), w.publication_status or "",
+                   _name(db, User, w.archived_by, "full_name"),
                    w.archived_at.isoformat(timespec="minutes") if w.archived_at else ""]
                   for w in db.scalars(stmt.order_by(ResearchWork.archived_at.desc())).all()]
 

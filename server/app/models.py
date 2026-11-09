@@ -49,6 +49,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(150), unique=True)
     student_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, unique=True)   # one student, one account
     department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("departments.department_id"), nullable=True)
+    is_head_librarian: Mapped[bool] = mapped_column(Boolean, default=False)   # Library Staff designated to verify and approve (FR5)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -69,6 +70,7 @@ class ResearchWork(Base):
     department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("departments.department_id"), nullable=True, index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("research_categories.category_id"), nullable=True, index=True)
     adviser_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)
+    dean_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.user_id"), nullable=True, index=True)     # FR4 / FR12
     submitted_by: Mapped[int] = mapped_column(ForeignKey("users.user_id"), index=True)
     current_status: Mapped[str] = mapped_column(String(40), default="DRAFT", index=True)
     current_revision_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -76,6 +78,8 @@ class ResearchWork(Base):
     version: Mapped[int] = mapped_column(Integer, default=0)       # optimistic lock
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    archived_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.user_id"), nullable=True)            # approving librarian (FR7)
+    publication_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)          # PUBLIC / RESTRICTED / UNPUBLISHED (FR10), set when archived
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -130,27 +134,21 @@ class FileRecord(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
-class ReviewAssignment(Base):
-    __tablename__ = "review_assignments"
-    assignment_id: Mapped[int] = mapped_column(Integer, **PK)
+class SignatoryVerification(Base):
+    """One signatory verification by the Head Librarian (manuscript Figure 8): who signed, the result and the remarks."""
+    __tablename__ = "signatory_verifications"
+    verification_id: Mapped[int] = mapped_column(Integer, **PK)
     work_id: Mapped[int] = mapped_column(ForeignKey("research_works.work_id"), index=True)
-    stage: Mapped[str] = mapped_column(String(20), index=True)
-    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), index=True)
     revision_number: Mapped[int] = mapped_column(Integer, default=1)
-    status: Mapped[str] = mapped_column(String(20), default="PENDING")   # PENDING/DONE/CANCELLED
-    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
-
-class Review(Base):
-    __tablename__ = "reviews"
-    review_id: Mapped[int] = mapped_column(Integer, **PK)
-    assignment_id: Mapped[int] = mapped_column(ForeignKey("review_assignments.assignment_id"), unique=True)
-    work_id: Mapped[int] = mapped_column(ForeignKey("research_works.work_id"), index=True)
-    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
-    decision: Mapped[str] = mapped_column(String(10))
-    comments: Mapped[str] = mapped_column(Text, default="")
-    decided_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    verified_by: Mapped[int] = mapped_column(ForeignKey("users.user_id"), index=True)
+    adviser_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    panelists_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    dean_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    researchers_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    sheet_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    result: Mapped[str] = mapped_column(String(10))                       # APPROVE / RETURN
+    remarks: Mapped[str] = mapped_column(Text, default="")
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class StatusHistory(Base):

@@ -1,10 +1,10 @@
-from PySide6.QtWidgets import (QDialog, QFormLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
-                               QRadioButton, QVBoxLayout)
-from ..widgets import button, confirm, h1, h2, hbox, info, muted, show_error, status_text
+from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QFormLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
+                               QVBoxLayout)
+from ..widgets import PUBLICATION_LABELS, button, confirm, h1, h2, hbox, info, muted, show_error, status_text
 from ..worker import run_async
 from .reader import ReaderDialog
 
-LIB_ROLES = {"LIBRARY_STAFF", "HEAD_LIBRARIAN", "ADMIN"}
+LIB_ROLE = "LIBRARY_STAFF"
 
 
 class ResearchDetailDialog(QDialog):
@@ -29,21 +29,33 @@ class ResearchDetailDialog(QDialog):
         self.work = w; self._clear()
         self.lay.addWidget(h1(w["title"]))
         form = QFormLayout()
-        for label, val in (("Authors", "; ".join(a["name"] for a in w["authors"])), ("Program", w["program"]),
+        for label, val in (("Authors", "; ".join(a["name"] for a in w["authors"])), ("Course", w["program"]),
                            ("Department", w["department"]), ("Year", w["year"]), ("Research Category", w["category"]),
-                           ("Adviser", w["adviser"]), ("Keywords", ", ".join(w["keywords"])),
-                           ("Status", status_text(w["status"])), ("Archived", (w["archived_at"] or "")[:10]),
+                           ("Adviser", w["adviser"]), ("Dean", w.get("dean")), ("Keywords", ", ".join(w["keywords"])),
+                           ("Status", status_text(w["status"])), ("Publication status", w.get("publication_label")),
+                           ("Archived", ((w["archived_at"] or "")[:10] + (f" by {w['archived_by']}" if w.get("archived_by") else "")).strip()),
                            ("Access", "Accessible — read in secure reader")):
             v = QLabel(str(val or "—")); v.setWordWrap(True); form.addRow(label + ":", v)
         self.lay.addLayout(form)
         self.lay.addWidget(h2("Abstract"))
         ab = QPlainTextEdit(w["abstract"]); ab.setReadOnly(True); ab.setMaximumHeight(160); self.lay.addWidget(ab)
-        row = [button("Read Research" if self.api.token else "Sign in to read", "primary", self.read)]
-        if self.api.role in LIB_ROLES and w["status"] == "ARCHIVED":
+        can_read = w.get("can_read", True)
+        read_btn = button("Read Research", "primary", self.read)
+        read_btn.setEnabled(bool(can_read))
+        if not can_read:
+            read_btn.setToolTip("Reading without an account is turned off, or this record has no manuscript. Please sign in.")
+        row = [read_btn]
+        if self.api.role == LIB_ROLE and w["status"] == "ARCHIVED":
             row.append(button("Edit Metadata…", slot=self.edit_meta))
-        if self.api.role == "ADMIN" and w["status"].startswith("UNDER_"):
-            row.append(button("Approve as Administrator…", slot=self.override))
+            row.append(button("Publication Status…", slot=self.edit_publication))
         self.lay.addLayout(hbox(*row))
+        companions = [f for f in w.get("files", []) if f["file_type"] != "MANUSCRIPT"]
+        if companions:                                     # only sent by the server to Library Staff and the owning student (FR15)
+            self.lay.addWidget(h2("Companion files"))
+            for f in companions:
+                kind = "Source code" if f["file_type"] == "SOURCE_CODE" else "Video demonstration"
+                self.lay.addLayout(hbox(muted(f"{kind}: {f['filename']} ({f['size_bytes'] // 1024} KB)"),
+                                        button("Save a copy…", slot=lambda _=None, f=f: self.save_companion(f))))
         self.lay.addWidget(h2("Related Research"))
         self.rel = QListWidget(); self.rel.setMaximumHeight(150); self.lay.addWidget(self.rel)
         self.rel_msg = muted("Loading related research…"); self.lay.addWidget(self.rel_msg)
@@ -57,12 +69,16 @@ class ResearchDetailDialog(QDialog):
         self.rel_msg.setText(r["message"] or "Double-click a title to open it.")
 
     def read(self):
-        if not self.api.token:
-            return info(self, "Please sign in to read the manuscript. Guests can browse and search the repository only.")
         ReaderDialog(self.api, self.work_id, self.work["title"], self).exec()
 
-    def override(self):
-        d = OverrideDialog(self.api, self.work, self)
+    def save_companion(self, f):
+        path, _ = QFileDialog.getSaveFileName(self, "Save companion file", f["filename"])
+        if path:
+            run_async(lambda: self.api.download(f"/repository/{self.work_id}/companions/{f['file_id']}"),
+                      lambda data: (open(path, "wb").write(data), info(self, "File saved.")), lambda e: show_error(self, e))
+
+    def edit_publication(self):
+        d = PublicationDialog(self.api, self.work, self)
         if d.exec():
             run_async(lambda: self.api.get(f"/repository/{self.work_id}"), self._render, lambda e: show_error(self, e))
 
@@ -72,32 +88,25 @@ class ResearchDetailDialog(QDialog):
             run_async(lambda: self.api.get(f"/repository/{self.work_id}"), self._render, lambda e: show_error(self, e))
 
 
-class OverrideDialog(QDialog):
-    """Administrator approval without waiting for the adviser / panel / dean / librarian. Reason is mandatory and audited."""
+class PublicationDialog(QDialog):
+    """Library Staff set Public / Restricted / Unpublished for archived research (FR10)."""
     def __init__(self, api, work, parent=None):
         super().__init__(parent)
         self.api, self.work = api, work
-        self.setWindowTitle("Approve as Administrator"); self.resize(560, 380)
-        lay = QVBoxLayout(self)
-        lay.addWidget(h2(work["title"]))
-        lay.addWidget(muted(f"Current status: {status_text(work['status'])}. Pending reviewers will be told their review is no longer needed. "
-                            "Earlier review decisions are kept; this approval is recorded as an ADMIN OVERRIDE in the review history and audit log."))
-        self.r_next = QRadioButton("Approve this stage and move to the next stage"); self.r_arch = QRadioButton("Approve everything remaining and ARCHIVE now")
-        self.r_next.setChecked(True); lay.addWidget(self.r_next); lay.addWidget(self.r_arch)
-        self.reason = QPlainTextEdit(); self.reason.setPlaceholderText("Reason (required, at least 5 characters) — e.g. 'Panel and adviser signed approval letters on file'")
-        lay.addWidget(self.reason)
-        lay.addLayout(hbox(button("Approve", "primary", self.go), button("Cancel", slot=self.reject)))
+        self.setWindowTitle("Publication Status"); self.resize(480, 260)
+        lay = QVBoxLayout(self); lay.addWidget(h2(work["title"]))
+        lay.addWidget(muted("Public: everyone who may read research.  Restricted: signed-in students, faculty and library staff.  "
+                            "Unpublished: library staff and the owning student only."))
+        self.combo = QComboBox()
+        for k, v in PUBLICATION_LABELS.items(): self.combo.addItem(v, k)
+        self.combo.setCurrentIndex(max(self.combo.findData(work.get("publication_status")), 0))
+        lay.addWidget(self.combo)
+        lay.addLayout(hbox(button("Save", "primary", self.go), button("Cancel", slot=self.reject)))
 
     def go(self):
-        reason = self.reason.toPlainText().strip()
-        if len(reason) < 5:
-            return info(self, "Enter a reason of at least 5 characters.")
-        mode = "archive" if self.r_arch.isChecked() else "next"
-        if not confirm(self, "Approve this research as Administrator" + (" and ARCHIVE it now?" if mode == "archive" else " and move it to the next stage?")):
-            return
-        body = {"mode": mode, "reason": reason, "expected_version": self.work["version"]}
-        run_async(lambda: self.api.post(f"/admin/works/{self.work['work_id']}/override-approve", body),
-                  lambda r: (info(self, f"Done. New status: {r['status'].replace('_', ' ').title()}"), self.accept()), lambda e: show_error(self, e))
+        v = self.combo.currentData()
+        run_async(lambda: self.api.put(f"/repository/{self.work['work_id']}/publication", {"publication_status": v}),
+                  lambda _: (info(self, "Publication status updated."), self.accept()), lambda e: show_error(self, e))
 
 
 class MetadataDialog(QDialog):

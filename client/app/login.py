@@ -34,7 +34,7 @@ class LoginWindow(QWidget):
         lay.addLayout(form)
         self.msg = QLabel(message); self.msg.setObjectName("error"); self.msg.setWordWrap(True); lay.addWidget(self.msg)
         self.btn = button("Sign in", "primary", self.submit); lay.addWidget(self.btn)
-        lay.addWidget(button("Continue as guest (search and browse)", slot=self.guest_requested.emit))
+        lay.addWidget(button("Continue as guest (search, browse and read)", slot=self.guest_requested.emit))
         lay.addWidget(button("Create student account", slot=self.register))
         lay.addStretch(1)
         lay.addWidget(muted("Access is logged. Contact the system administrator if you cannot sign in."))

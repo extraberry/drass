@@ -17,22 +17,26 @@ from .services.submission_service import _apply
 
 DEMO_PASSWORD = "Drass2026"
 ROLE_DESC = {
-    "STUDENT": "Submits research and tracks status", "ADVISER": "Reviews assigned advisee submissions",
-    "PANELIST": "Reviews assigned research as panel member", "DEAN": "Departmental approval stage",
-    "LIBRARY_STAFF": "Browses repository and verifies metadata", "HEAD_LIBRARIAN": "Final archive approval",
-    "ADMIN": "System administration", "EXTERNAL_USER": "Read-only access to approved research",
+    "STUDENT": "Submits the final PDF and metadata, tracks status and remarks, and searches and reads accessible research",
+    "FACULTY": "Advisers, panelists and deans: search, filter and read accessible research (they sign approval sheets outside the system)",
+    "LIBRARY_STAFF": "Manages research records, metadata and publication status; the Head Librarian also verifies signatories and gives the final archival approval",
+    "ADMIN": "Manages accounts, roles, settings, backup and recovery, and activity records",
+    "EXTERNAL_USER": "Searches and views research permitted by its publication status",
 }
 DEPTS = {"College of Information Technology": ["BS Information Technology", "BS Computer Science"],
          "College of Education": ["BS Secondary Education", "BS Elementary Education"],
          "College of Business": ["BS Business Administration", "BS Accountancy"],
          "College of Health Sciences": ["BS Nursing", "BS Midwifery"]}
 CATEGORIES = ["Information Technology", "Education Technology", "Business", "Social Research", "Health", "Engineering", "Other"]
-USERS = [  # username, role, full name, dept index (0=IT), student no
-    ("admin", "ADMIN", "System Administrator", None, None), ("headlibrarian", "HEAD_LIBRARIAN", "Helena Reyes", None, None),
-    ("librarian", "LIBRARY_STAFF", "Lorenzo Santos", None, None), ("dean", "DEAN", "Dr. Diana Villanueva", 0, None),
-    ("adviser1", "ADVISER", "Prof. Adrian Cruz", 0, None), ("panelist1", "PANELIST", "Prof. Paolo Mendoza", 0, None),
-    ("panelist2", "PANELIST", "Prof. Patricia Lim", 0, None), ("student1", "STUDENT", "Sofia Ramos", 0, "2022-0001"),
-    ("student2", "STUDENT", "Miguel Garcia", 0, "2022-0002"), ("external1", "EXTERNAL_USER", "Erika Dela Cruz", None, None),
+USERS = [  # username, role, full name, dept index (0=IT), student no, is_head_librarian
+    ("admin", "ADMIN", "System Administrator", None, None, False),
+    ("headlibrarian", "LIBRARY_STAFF", "Lorenzo Santos", None, None, True),
+    ("libstaff1", "LIBRARY_STAFF", "Maria Reyes", None, None, False),
+    ("faculty1", "FACULTY", "Prof. Adrian Cruz", 0, None, False),          # adviser
+    ("dean1", "FACULTY", "Dr. Elena Navarro", 0, None, False),             # dean
+    ("student1", "STUDENT", "Sofia Ramos", 0, "2022-0001", False),
+    ("student2", "STUDENT", "Miguel Garcia", 0, "2022-0002", False),
+    ("external1", "EXTERNAL_USER", "Erika Dela Cruz", None, None, False),
 ]
 DEMO_WORKS = [  # title, abstract, keywords, year, program idx, category, authors
     ("Development of a Mobile Quiz Application for Improving Student Engagement in Science Education",
@@ -115,9 +119,9 @@ def seed_core(db: Session) -> None:
     db.add_all(ResearchCategory(category_name=c) for c in CATEGORIES)
     db.flush()
     pw = hash_password(DEMO_PASSWORD)
-    for username, role, name, dept_i, sn in USERS:
+    for username, role, name, dept_i, sn, head in USERS:
         db.add(User(username=username, password_hash=pw, role_id=roles[role].role_id, full_name=name,
-                    email=f"{username}@demo.drass.local", student_number=sn,
+                    email=f"{username}@demo.drass.local", student_number=sn, is_head_librarian=head,
                     department_id=depts[dept_i].department_id if dept_i is not None else None))
     db.commit()
 
@@ -144,16 +148,19 @@ def seed_demo(db: Session) -> int:
     files_service.ensure_dirs()
     programs = db.scalars(select(Program).order_by(Program.program_id)).all()
     cats = {c.category_name: c.category_id for c in db.scalars(select(ResearchCategory)).all()}
-    adviser = db.scalar(select(User).where(User.username == "adviser1"))
+    adviser = db.scalar(select(User).where(User.username == "faculty1"))
+    dean = db.scalar(select(User).where(User.username == "dean1"))
+    librarian = db.scalar(select(User).where(User.username == "headlibrarian"))
     submitter = db.scalar(select(User).where(User.username == "student2"))   # demo records owned by student2 so student1 starts clean
     created = []
     for i, (title, abstract, kws, year, prog_i, cat, authors) in enumerate(DEMO_WORKS, 1):
         prog = programs[prog_i]
         w = ResearchWork(submitted_by=submitter.user_id, current_status="ARCHIVED", title=title, abstract="",
-                         reference_no=f"DEMO-{i:03d}", submitted_at=utcnow(), archived_at=utcnow())
+                         reference_no=f"DEMO-{i:03d}", submitted_at=utcnow(), archived_at=utcnow(),
+                         archived_by=librarian.user_id if librarian else None, publication_status="PUBLIC")
         db.add(w); db.flush()
         _apply(db, w, {"title": title, "abstract": abstract, "year": year, "program_id": prog.program_id,
-                       "department_id": prog.department_id, "category_id": cats[cat], "adviser_id": adviser.user_id,
+                       "department_id": prog.department_id, "category_id": cats[cat], "adviser_id": adviser.user_id, "dean_id": dean.user_id,
                        "authors": [{"name": a} for a in authors], "keywords": kws})
         rev = Revision(work_id=w.work_id, revision_number=1, submitted_by=submitter.user_id, change_notes="Seeded demo record")
         db.add(rev); db.flush()

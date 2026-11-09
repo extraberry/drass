@@ -19,6 +19,10 @@ def index_text_for(db: Session, w: ResearchWork) -> str:
     return sc.build_index_text(w.title, w.abstract, keywords_of(db, w.work_id))
 
 
+def index_pieces_for(db: Session, w: ResearchWork) -> list[str]:
+    return sc.build_index_pieces(w.title, w.abstract, keywords_of(db, w.work_id))
+
+
 def _row(db: Session, work_id: int) -> Embedding:
     row = db.scalar(select(Embedding).where(Embedding.work_id == work_id))
     if row is None:
@@ -35,10 +39,10 @@ def index_work(db: Session, work_id: int, actor_id=None, rebuilt: bool = False) 
     try:
         text = index_text_for(db, w)
         emb = get_embedder()
-        vec = emb.encode([text])[0]
+        vecs = emb.encode(index_pieces_for(db, w))            # one vector per piece (full text, title+keywords, abstract windows)
         row = _row(db, work_id)
-        row.model_name, row.dimension, row.dtype = emb.model_name, int(vec.shape[0]), "float32"
-        row.vector_blob, row.indexed_text_hash = sc.to_blob(vec), sc.text_hash(text)
+        row.model_name, row.dimension, row.dtype = emb.model_name, int(vecs.shape[1]), "float32"
+        row.vector_blob, row.indexed_text_hash = sc.to_blob(vecs), sc.text_hash(text)
         row.status, row.error_message, row.indexed_at = "COMPLETE", None, utcnow()
         audit(db, actor_id, "EMBEDDING_REBUILT" if rebuilt else "EMBEDDING_CREATED", "work", work_id)
         db.commit()
@@ -49,7 +53,7 @@ def index_work(db: Session, work_id: int, actor_id=None, rebuilt: bool = False) 
         row = _row(db, work_id)
         row.status, row.error_message = "FAILED", str(exc)[:480]
         audit(db, actor_id, "EMBEDDING_FAILED", "work", work_id, "FAILED", str(exc)[:500])
-        notify_roles(db, ["ADMIN", "HEAD_LIBRARIAN"], "Indexing failure",
+        notify_roles(db, ["ADMIN"], "Indexing failure",
                      f"Semantic indexing failed for work #{work_id}. Retry from the Indexing Monitor.",
                      "INDEXING", "work", work_id)
         db.commit()

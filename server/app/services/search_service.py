@@ -6,8 +6,8 @@ from ..domain import search_core as sc
 from ..domain.errors import NotFound
 from ..models import Embedding, ResearchKeyword, Keyword, ResearchWork, User
 from .common import activity, get_setting
-from .embedder import get_embedder
-from .repository_service import apply_filters, get_work_for_user
+from .embedder import encode_query
+from .repository_service import apply_filters, archived_visibility, get_work_for_user
 from .serializers import authors_of, keywords_of, work_dict
 
 NO_MATCH = "No sufficiently related research was found."
@@ -15,8 +15,9 @@ NO_MATCH_HINT = "Try removing filters or browsing the repository."
 NO_RECS = "No closely related studies were found yet."
 
 
-def _candidates(db: Session, filters: dict | None = None) -> list[sc.Candidate]:
-    stmt = select(ResearchWork).where(ResearchWork.current_status == "ARCHIVED")
+def _candidates(db: Session, user: User, filters: dict | None = None) -> list[sc.Candidate]:
+    """Only ARCHIVED works this user may see (publication status, FR10) are ever ranked."""
+    stmt = select(ResearchWork).where(archived_visibility(user))
     if filters:
         stmt = apply_filters(stmt, filters)
     works = {w.work_id: w for w in db.scalars(stmt).all()}
@@ -32,17 +33,18 @@ def _candidates(db: Session, filters: dict | None = None) -> list[sc.Candidate]:
     out = []
     for e in embs:
         w = works[e.work_id]
-        out.append(sc.Candidate(w.work_id, sc.from_blob(e.vector_blob), w.year or 0, w.program_id,
-                                w.department_id, w.category_id, frozenset(kw.get(w.work_id, ()))))
+        out.append(sc.Candidate(w.work_id, sc.matrix_from_blob(e.vector_blob, e.dimension), w.year or 0, w.program_id,
+                                w.department_id, w.category_id, frozenset(kw.get(w.work_id, ())),
+                                w.title or "", w.abstract or ""))
     return out
 
 
 def semantic_search(db: Session, user: User, query: str, filters: dict, limit: int) -> dict:
     q = sc.normalize_query(query)
     threshold = get_setting(db, "semantic_threshold")
-    qvec = get_embedder().encode([q])[0]
-    cands = _candidates(db, {k: v for k, v in filters.items() if v not in (None, "")})
-    ranked = sc.rank(qvec, cands, threshold, limit)
+    qvec = encode_query(q)
+    cands = _candidates(db, user, {k: v for k, v in filters.items() if v not in (None, "")})
+    ranked = sc.rank(qvec, cands, threshold, limit, query_text=q)
     results = []
     for wid, score in ranked:
         d = work_dict(db, db.get(ResearchWork, wid), detail=False)
@@ -55,7 +57,7 @@ def semantic_search(db: Session, user: User, query: str, filters: dict, limit: i
     db.commit()
     return {"query": q, "count": len(results), "threshold": threshold, "results": results,
             "message": None if results else NO_MATCH, "hint": None if results else NO_MATCH_HINT,
-            "disclaimer": "Semantic relevance is a similarity estimate, not a guarantee of factual relevance."}
+            "disclaimer": "Relevance combines meaning and matching words; it is an estimate, not a guarantee of factual relevance."}
 
 
 def recommendations(db: Session, user: User, work_id: int) -> dict:
@@ -65,10 +67,10 @@ def recommendations(db: Session, user: User, work_id: int) -> dict:
     emb = db.scalar(select(Embedding).where(Embedding.work_id == work_id, Embedding.status == "COMPLETE"))
     items = []
     if emb is not None and w.current_status == "ARCHIVED":
-        pool = _candidates(db)
+        pool = _candidates(db, user)
         me = next((c for c in pool if c.work_id == work_id), None)
         if me is None:
-            me = sc.Candidate(work_id, sc.from_blob(emb.vector_blob), w.year or 0, w.program_id,
+            me = sc.Candidate(work_id, sc.matrix_from_blob(emb.vector_blob, emb.dimension), w.year or 0, w.program_id,
                               w.department_id, w.category_id, frozenset(keywords_of(db, work_id)))
         for wid, score in sc.recommend(me, pool, threshold, count):
             d = work_dict(db, db.get(ResearchWork, wid), detail=False)

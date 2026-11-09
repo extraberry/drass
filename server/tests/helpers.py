@@ -18,8 +18,8 @@ def new_draft(client, h, title="Smart Attendance Monitoring for Rural Schools", 
               authors=None, year=2026, keywords=("attendance", "qr code")):
     lk = lookups(client, h)
     body = {"title": title, "abstract": abstract, "year": year, "program_id": lk["programs"][0]["id"],
-            "department_id": lk["programs"][0]["department_id"], "category_id": lk["categories"][0]["id"],
-            "adviser_id": lk["advisers"][0]["id"], "keywords": list(keywords)}
+            "department_id": lk["programs"][0]["department_id"],
+            "adviser_id": lk["faculty"][0]["id"], "dean_id": lk["faculty"][-1]["id"], "keywords": list(keywords)}
     if authors:
         body["authors"] = [{"name": a} for a in authors]
     r = client.post("/submissions", headers=h, json=body)
@@ -37,18 +37,19 @@ def ready_submission(client, h, **kw):
     return wid
 
 
-def decide(client, h, work_id, decision, comments="", expected_version=None):
-    """decision: approve|return|reject. Uses the caller's review queue to find the assignment."""
-    q = client.get("/reviews/queue", headers=h).json()["items"]
-    item = next(i for i in q if i["work_id"] == work_id)
-    return client.post(f"/reviews/{item['assignment_id']}/{decision}", headers=h,
-                       json={"comments": comments, "expected_version": expected_version})
+CHECKLIST = dict(adviser_signed=True, panelists_signed=True, dean_signed=True, researchers_signed=True, sheet_complete=True)
 
 
-def archive_chain(client, work_id):
-    steps = [("adviser1", "UNDER_PANEL_REVIEW"), ("panelist1", "UNDER_PANEL_REVIEW"), ("panelist2", "UNDER_DEAN_REVIEW"),
-             ("dean", "UNDER_HEAD_LIBRARIAN_REVIEW"), ("headlibrarian", "ARCHIVED")]
-    for user, expected in steps:
-        r = decide(client, login(client, user), work_id, "approve")
-        assert r.status_code == 200, r.text
-        assert r.json()["status"] == expected, r.json()
+def verify(client, h, work_id, decision="APPROVE", remarks="", publication_status="PUBLIC", expected_version=None, **checklist):
+    """Head Librarian's signatory verification. The checklist defaults to everything confirmed."""
+    body = {"decision": decision, **{**CHECKLIST, **checklist}, "remarks": remarks, "expected_version": expected_version}
+    if decision == "APPROVE":
+        body["publication_status"] = publication_status
+    return client.post(f"/verifications/{work_id}", headers=h, json=body)
+
+
+def archive_chain(client, work_id, publication_status="PUBLIC"):
+    """The Head Librarian verifies the signatories and gives the final approval: Pending Verification -> Archived."""
+    r = verify(client, login(client, "headlibrarian"), work_id, "APPROVE", publication_status=publication_status)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ARCHIVED", r.json()

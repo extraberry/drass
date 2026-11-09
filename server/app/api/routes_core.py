@@ -8,16 +8,15 @@ from sqlalchemy.orm import Session
 from ..core.deps import bearer_token, current_user, require, role_of
 from ..db import get_db
 from ..domain import rbac
-from ..domain.enums import Decision, FileType, Role, Status
+from ..domain.enums import Decision, FileType, Role
 from ..domain.errors import Forbidden, NotFound, ValidationFailed
-from ..domain.file_validation import new_stored_name, sanitize_filename, validate_upload
+from ..domain.file_validation import LABELS, new_stored_name, sanitize_filename, validate_upload
 from ..models import Notification, ResearchWork, Revision, StatusHistory, User
-from ..schemas.schemas import (LoginIn, PanelIn, PasswordChangeIn, ProfilePatchIn, ResubmitIn, ReviewActionIn,
-                               SubmissionIn, OverrideIn)
-from ..services import (admin_service, auth_service, files_service, review_service, submission_service)
+from ..schemas.schemas import (LoginIn, PasswordChangeIn, ProfilePatchIn, ResubmitIn, SubmissionIn, VerificationIn)
+from ..services import (admin_service, auth_service, files_service, submission_service, verification_service)
 from ..services.common import audit, get_setting
 from ..services.repository_service import get_work_for_user
-from ..services.serializers import STATUS_LABELS, user_dict, work_dict
+from ..services.serializers import PUBLICATION_LABELS, STATUS_LABELS, user_dict, work_dict
 
 router = APIRouter()
 
@@ -62,13 +61,12 @@ def change_password(body: PasswordChangeIn, user: User = Depends(current_user), 
 # ---------- lookups / dashboard / notifications ----------
 @router.get("/lookups")
 def lookups(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    advisers = db.scalars(select(User).where(User.status == "ACTIVE", User.role.has(role_name="ADVISER"))).all()
-    panelists = db.scalars(select(User).where(User.status == "ACTIVE", User.role.has(role_name="PANELIST"))).all()
+    faculty = db.scalars(select(User).where(User.status == "ACTIVE", User.role.has(role_name="FACULTY")).order_by(User.full_name)).all()
     return {"departments": admin_service.lookup_rows(db, "departments"), "programs": admin_service.lookup_rows(db, "programs"),
             "categories": admin_service.lookup_rows(db, "categories"),
-            "advisers": [{"id": a.user_id, "name": a.full_name, "department_id": a.department_id} for a in advisers],
-            "panelists": [{"id": a.user_id, "name": a.full_name} for a in panelists],
+            "faculty": [{"id": a.user_id, "name": a.full_name, "department_id": a.department_id} for a in faculty],   # advisers and deans
             "statuses": [{"id": k, "name": v} for k, v in STATUS_LABELS.items()],
+            "publication_statuses": [{"id": k, "name": v} for k, v in PUBLICATION_LABELS.items()],
             "roles": [r.value for r in Role]}
 
 
@@ -112,9 +110,8 @@ def read_all(user: User = Depends(current_user), db: Session = Depends(get_db)):
 # ---------- submissions ----------
 def _detail(db: Session, user: User, w: ResearchWork) -> dict:
     d = work_dict(db, w)
-    is_owner = w.submitted_by == user.user_id
-    if is_owner or user.role.role_name == "ADMIN":
-        d["review_history"] = review_service.work_review_history(db, w.work_id)
+    if w.submitted_by == user.user_id:                         # the student sees the remarks of the Head Librarian (FR8)
+        d["verification_history"] = verification_service.work_verification_history(db, w.work_id)
         d["revisions"] = [{"revision_number": r.revision_number, "change_notes": r.change_notes,
                            "created_at": r.created_at.isoformat()} for r in
                           db.scalars(select(Revision).where(Revision.work_id == w.work_id).order_by(Revision.revision_number)).all()]
@@ -164,28 +161,14 @@ def resubmit_submission(work_id: int, body: ResubmitIn, user: User = Depends(req
     return _detail(db, user, w)
 
 
-@router.post("/submissions/{work_id}/panel")
-def assign_panel(work_id: int, body: PanelIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    w = db.get(ResearchWork, work_id)
-    if w is None:
-        raise NotFound("Research not found.")
-    r = role_of(user)
-    if not (r is Role.ADMIN or (r is Role.ADVISER and w.adviser_id == user.user_id)):
-        audit(db, user.user_id, "PERMISSION_DENIED", "work", work_id, "DENIED", "panel assignment")
-        db.commit()
-        raise Forbidden("You do not have permission to assign the panel.")
-    submission_service.set_panel(db, user, w, body.panelist_ids)
-    db.commit()
-    return {"success": True}
-
-
 @router.put("/submissions/{work_id}/files/{file_type}")
 async def upload_file(work_id: int, file_type: FileType, request: Request, filename: str = Query(..., max_length=255),
                       user: User = Depends(require("submission.edit_own")), db: Session = Depends(get_db)):
     """Streamed upload (raw body). Validates size/signature, writes atomically, cleans up on any failure."""
     w = submission_service.get_owned_editable(db, user, work_id)
     files_service.ensure_dirs()
-    limit_mb = get_setting(db, "max_manuscript_mb" if file_type is FileType.MANUSCRIPT else "max_companion_mb")
+    limit_mb = files_service.limits_mb(db)[file_type]
+    label = LABELS[file_type].lower()
     tmp, final = files_service.temp_path(), None
     try:
         size, head, h = 0, b"", hashlib.sha256()
@@ -193,7 +176,7 @@ async def upload_file(work_id: int, file_type: FileType, request: Request, filen
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > limit_mb * 1024 * 1024:
-                    raise ValidationFailed(f"File exceeds the {limit_mb} MB limit.")
+                    raise ValidationFailed(f"This file is larger than the {limit_mb} MB limit for {label}.")
                 if len(head) < 64:
                     head += chunk[: 64 - len(head)]
                 h.update(chunk)
@@ -228,35 +211,25 @@ async def upload_file(work_id: int, file_type: FileType, request: Request, filen
         raise
 
 
-# ---------- reviews ----------
-@router.get("/reviews/queue")
-def review_queue(user: User = Depends(require("review.act")), db: Session = Depends(get_db)):
-    return {"items": review_service.queue(db, user)}
+# ---------- Head Librarian verification (FR5-FR7) ----------
+@router.get("/verifications/queue")
+def verification_queue(user: User = Depends(require("verification.view")), db: Session = Depends(get_db)):
+    return {"items": verification_service.queue(db), "can_verify": bool(user.is_head_librarian)}
 
 
-@router.get("/reviews/history")
-def review_history(user: User = Depends(require("review.act")), db: Session = Depends(get_db)):
-    return {"items": review_service.history_for_reviewer(db, user)}
+@router.get("/verifications/history")
+def verification_history(user: User = Depends(require("verification.act")), db: Session = Depends(get_db)):
+    return {"items": verification_service.history_for_librarian(db, user)}
 
 
-@router.get("/reviews/{assignment_id}")
-def review_detail(assignment_id: int, user: User = Depends(require("review.act")), db: Session = Depends(get_db)):
-    return review_service.get_detail(db, user, assignment_id)
+@router.get("/verifications/{work_id}")
+def verification_detail(work_id: int, user: User = Depends(require("verification.view")), db: Session = Depends(get_db)):
+    return verification_service.get_detail(db, work_id)
 
 
-def _decide(decision: Decision):
-    def handler(assignment_id: int, body: ReviewActionIn, user: User = Depends(require("review.act")),
-                db: Session = Depends(get_db)):
-        return review_service.act(db, user, assignment_id, decision, body.comments, body.expected_version,
-                                  body.panel_offline, body.panel_offline_reference)
-    return handler
-
-
-router.add_api_route("/reviews/{assignment_id}/approve", _decide(Decision.APPROVE), methods=["POST"])
-router.add_api_route("/reviews/{assignment_id}/return", _decide(Decision.RETURN), methods=["POST"])
-router.add_api_route("/reviews/{assignment_id}/reject", _decide(Decision.REJECT), methods=["POST"])
-
-
-@router.post("/admin/works/{work_id}/override-approve")
-def override_approve(work_id: int, body: OverrideIn, user: User = Depends(require("review.override")), db: Session = Depends(get_db)):
-    return review_service.admin_override(db, user, work_id, body.mode, body.reason, body.expected_version)
+@router.post("/verifications/{work_id}")
+def verification_decide(work_id: int, body: VerificationIn, user: User = Depends(require("verification.act")),
+                        db: Session = Depends(get_db)):
+    checklist = {k: getattr(body, k) for k in ("adviser_signed", "panelists_signed", "dean_signed", "researchers_signed", "sheet_complete")}
+    return verification_service.verify(db, user, work_id, Decision(body.decision), checklist, body.remarks,
+                                       body.publication_status, body.expected_version)

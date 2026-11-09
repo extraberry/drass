@@ -22,7 +22,10 @@ def current_user(token: Optional[str] = Depends(bearer_token), db: Session = Dep
 
 
 def role_of(user: User) -> Role:
-    return Role(user.role.role_name)
+    try:
+        return Role(user.role.role_name)
+    except ValueError:                      # a retired role (e.g. a removed role) can no longer act
+        raise Forbidden("This account's role no longer exists. Contact the administrator.")
 
 
 def require(permission: str):

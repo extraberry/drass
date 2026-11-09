@@ -1,4 +1,4 @@
-"""ResearchVault desktop client entry point:  python client/main.py"""
+"""DRASS desktop client entry point:  python client/main.py"""
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root for `client.app...`

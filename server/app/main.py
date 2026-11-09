@@ -1,4 +1,4 @@
-"""ResearchVault FastAPI application."""
+"""DRASS FastAPI application."""
 import logging
 import threading
 import time
@@ -12,7 +12,7 @@ from .api import routes_core, routes_more, routes_public, routes_integration
 from .core.config import get_settings
 from .db import SessionLocal
 from .domain.errors import DrassError
-from .services import files_service, index_service
+from .services import embedder, files_service, index_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("drass.app")
@@ -33,12 +33,13 @@ async def lifespan(app: FastAPI):
     files_service.ensure_dirs()
     stop = threading.Event()
     if settings.embedder != "hash":
+        threading.Thread(target=embedder.warm_up, daemon=True).start()   # load the model now, not on the first search
         threading.Thread(target=_retry_loop, args=(stop,), daemon=True).start()
     yield
     stop.set()
 
 
-app = FastAPI(title="ResearchVault API", lifespan=lifespan,
+app = FastAPI(title="DRASS API", lifespan=lifespan,
               docs_url="/docs" if settings.enable_docs else None,
               redoc_url=None, openapi_url="/openapi.json" if settings.enable_docs else None)
 app.include_router(routes_core.router)

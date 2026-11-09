@@ -1,6 +1,7 @@
 """Embedding model access. Production: Sentence-Transformers from a LOCAL path (no internet).
 HashEmbedder is a deterministic bag-of-words stand-in used ONLY by automated tests (EMBEDDER=hash)."""
 import hashlib
+import logging
 import re
 import threading
 from pathlib import Path
@@ -54,6 +55,40 @@ class STEmbedder:
                           dtype=np.float32)
 
 
+_QCACHE: "OrderedDict[str, np.ndarray]" = None
+_qlock = threading.Lock()
+
+
+def encode_query(text: str) -> np.ndarray:
+    """Embed a search query. Recent queries are remembered (LRU, 256) so repeating a search, e.g. during a demo, is instant."""
+    global _QCACHE
+    from collections import OrderedDict
+    with _qlock:
+        if _QCACHE is None:
+            _QCACHE = OrderedDict()
+        hit = _QCACHE.get(text)
+        if hit is not None:
+            _QCACHE.move_to_end(text)
+            return hit
+    vec = get_embedder().encode([text])[0]
+    with _qlock:
+        _QCACHE[text] = vec
+        while len(_QCACHE) > 256:
+            _QCACHE.popitem(last=False)
+    return vec
+
+
+def warm_up() -> None:
+    """Load the model and run one encode so the first real search is fast (called in the background at server start)."""
+    import time
+    t0 = time.time()
+    try:
+        get_embedder().encode(["warm up"])
+        logging.getLogger("drass.app").info("Embedding model ready in %.1f s", time.time() - t0)
+    except Exception as exc:   # noqa: BLE001
+        logging.getLogger("drass.app").warning("Embedding model warm-up failed: %s", exc)
+
+
 def get_embedder():
     global _embedder
     with _lock:
@@ -65,5 +100,6 @@ def get_embedder():
 
 def set_embedder(e) -> None:
     """Test hook."""
-    global _embedder
+    global _embedder, _QCACHE
     _embedder = e
+    _QCACHE = None

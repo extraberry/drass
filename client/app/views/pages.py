@@ -1,12 +1,14 @@
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QComboBox, QDateEdit, QFileDialog, QFormLayout, QGridLayout, QInputDialog, QLabel, QLineEdit,
-                               QPlainTextEdit, QRadioButton, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QComboBox, QDateEdit, QFileDialog, QFormLayout, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout,
+                               QInputDialog, QLabel, QLineEdit, QPlainTextEdit, QRadioButton, QVBoxLayout, QWidget)
+from ..style import card_shadow_rgba
 from PySide6.QtCore import QDate, Qt
 from ..dialogs.research_detail import ResearchDetailDialog
-from ..dialogs.review_dialog import ReviewDialog
+from ..dialogs.verification_dialog import VerificationDialog
 from ..dialogs.submission_form import SubmissionForm
 from ..dialogs.user_dialog import UserDialog
-from ..widgets import (StatCard, DataTable, Page, button, card, confirm, h1, h2, hbox, info, muted, show_error, status_text)
+from ..widgets import (PUBLICATION_LABELS, StatCard, DataTable, Page, button, card, confirm, h1, h2, hbox, info, muted, show_error, status_text)
 from ..worker import run_async
 from .common import FilterBar
 
@@ -32,40 +34,40 @@ class DashboardPage(Page):
         u = self.api.user
         self.root.addWidget(h1(f"Welcome, {u['full_name']}"))
         self.root.addWidget(muted("Digital Research Archiving System with Semantic Search — Mary the Queen College of Quezon City, Inc."))
-        labels = {"pending_reviews": "Pending reviews", "reviewed_total": "Reviews completed", "advisees": "Advisees",
-                  "department_archived": "Archived research in your department", "archived": "Archived research",
+        labels = {"pending_verification": "Pending verification", "verified_total": "Verifications completed", "returned": "Returned to students",
+                  "archived": "Archived research", "total_works": "Total research works",
                   "indexing_failures": "Indexing failures", "unread_notifications": "Unread notifications",
-                  "total_works": "Total research works", "pending_submissions": "Submitted (awaiting routing)",
-                  "pending_adviser": "Pending adviser reviews", "pending_panel": "Pending panel reviews",
-                  "pending_dean": "Pending dean reviews", "pending_librarian": "Pending librarian reviews", "rejected": "Rejected works",
                   "active_users": "Active users", "inactive_users": "Deactivated users", "failed_logins": "Failed login events"}
-        admin = self.api.role == "ADMIN"
-        by_status = {"pending_submissions": "SUBMITTED", "pending_adviser": "UNDER_ADVISER_REVIEW", "pending_panel": "UNDER_PANEL_REVIEW",
-                     "pending_dean": "UNDER_DEAN_REVIEW", "pending_librarian": "UNDER_HEAD_LIBRARIAN_REVIEW", "rejected": "REJECTED", "archived": "ARCHIVED"}
         def target(key):
-            if admin and key == "total_works": return (["Repository Management"], {})
-            if admin and key in by_status: return (["Repository Management"], {"status": by_status[key]})
-            if key == "archived": return (["Repository"], {})
-            if key == "department_archived": return (["Department Research"], {})
+            if key == "archived" and self.api.role != "ADMIN": return (["Repository"], {})
             if key == "active_users": return (["Users"], {"status": "ACTIVE"})
             if key == "inactive_users": return (["Users"], {"status": "INACTIVE"})
             if key == "failed_logins": return (["Audit Logs"], {"action": "LOGIN_FAILED"})
             if key == "indexing_failures": return (["Indexing Monitor"], {})
             if key == "unread_notifications": return (["Notifications"], {})
-            if key == "pending_reviews": return (["Review Queue", "Assigned Reviews", "Pending Approvals", "Archive Approval Queue"], {})
-            if key == "reviewed_total": return (["Review History"], {})
+            if key == "pending_verification" and self.api.role == "LIBRARY_STAFF": return (["Verification Queue"], {})
+            if key == "verified_total": return (["Verification History"], {})
             return None
-        g = QGridLayout(); g.setHorizontalSpacing(20); g.setVerticalSpacing(14); g.setContentsMargins(40, 14, 40, 0); g.setAlignment(Qt.AlignTop)
+        admin = self.api.role == "ADMIN"
+        g = QGridLayout(); g.setHorizontalSpacing(20); g.setVerticalSpacing(20); g.setContentsMargins(40, 14, 40, 26); g.setAlignment(Qt.AlignTop)
         i = 0
         for k, lbl in labels.items():
             if k not in d: continue
             tg = target(k)
-            card = StatCard(lbl, d[k], clickable=tg is not None)
+            sc = StatCard(lbl, d[k], clickable=tg is not None)   # (not named `card`: that would shadow the card() helper below)
             if tg and self.main:
-                card.clicked.connect(lambda labels_=tg[0], preset=tg[1]: self.main.navigate_first(labels_, preset))
-            g.addWidget(card, i // 4, i % 4); i += 1
+                sc.clicked.connect(lambda labels_=tg[0], preset=tg[1]: self.main.navigate_first(labels_, preset))
+            g.addWidget(sc, i // 4, i % 4); i += 1
         for c in range(4): g.setColumnStretch(c, 1)
         w = QWidget(); w.setLayout(g); self.root.addWidget(w)
+        if admin:
+            # Panel below the grid (matches the UI design): same colour as the cards in light and dark, 190px tall,
+            # at most 980px wide, sitting 26px under the grid so the card shadows stay visible.
+            panel = card(); panel.setFixedHeight(190); panel.setMaximumWidth(980)
+            sh = QGraphicsDropShadowEffect(panel); sh.setBlurRadius(14); sh.setOffset(0, 3); sh.setColor(QColor(*card_shadow_rgba()))
+            panel.setGraphicsEffect(sh)
+            row = QHBoxLayout(); row.setContentsMargins(40, 0, 40, 14); row.addWidget(panel); row.addStretch(1)
+            self.root.addLayout(row)
         if "submissions" in d:
             self.root.addWidget(h2("My submissions"))
             t = DataTable(); t.set_data(["Title", "Status"], [[s["title"], status_text(s["status"])] for s in d["submissions"]])
@@ -106,88 +108,91 @@ class SubmissionsPage(Page):
         if wid is None: return
         def render(w):
             lines = [f"{w['title']}  [{w['status_label']}]", ""]
-            for h in w.get("review_history", []):
-                lines.append(f"• {h['stage']} (rev {h['revision_number']}) — {h['reviewer']}: {h['decision']} — {h['comments']}")
+            for h in w.get("verification_history", []):
+                lines.append(f"• Verification (rev {h['revision_number']}) — {h['verified_by']}: {'Approved' if h['result'] == 'APPROVE' else 'Returned'} — {h['remarks']}")
             for r in w.get("revisions", []):
                 lines.append(f"Revision {r['revision_number']}: {r['change_notes']}")
             self.detail.setPlainText("\n".join(lines))
         run_async(lambda: self.api.get(f"/submissions/{wid}"), render, None)
 
 
-class ReviewQueuePage(Page):
-    def __init__(self, api, main=None, title="Review Queue"):
+class VerificationQueuePage(Page):
+    """Submissions waiting for signatory verification. The Head Librarian verifies; other Library Staff can open and read them."""
+    title = "Verification Queue"
+
+    def __init__(self, api, main=None):
         super().__init__(api, main)
-        self.title = title
-        self.root.addWidget(h1(title))
-        self.root.addLayout(hbox(button("Open Review", "primary", self.open), button("Refresh", slot=self.refresh)))
+        self.can_verify = bool(api.user.get("is_head_librarian"))
+        self.root.addWidget(h1("Verification Queue"))
+        if not self.can_verify:
+            self.root.addWidget(muted("Only the Head Librarian can verify the signatories and approve a submission. You can open the records to read them."))
+        self.root.addLayout(hbox(button("Open" if not self.can_verify else "Verify Selected", "primary", self.open), button("Refresh", slot=self.refresh)))
         self.table = DataTable(); self.table.doubleClicked.connect(lambda *_: self.open()); self.root.addWidget(self.table)
         self.empty = muted(""); self.root.addWidget(self.empty)
 
     def refresh(self):
-        run_async(lambda: self.api.get("/reviews/queue")["items"], self._fill, lambda e: show_error(self, e))
+        def load():
+            r = self.api.get("/verifications/queue")
+            return r["items"], r.get("can_verify", False)
+        run_async(load, self._fill, lambda e: show_error(self, e))
 
-    def _fill(self, items):
-        self.table.set_data(["Reference", "Title", "Stage", "Program", "Assigned"],
-                            [[i["reference_no"], i["title"], i["stage"].replace("_", " ").title(), i["program"], i["assigned_at"][:16]] for i in items],
-                            [i["assignment_id"] for i in items])
-        self.empty.setText("" if items else "Nothing is waiting for your review.")
+    def _fill(self, res):
+        items, self.can_verify = res
+        self.table.set_data(["Reference", "Title", "Course", "Adviser", "Dean", "Submitted"],
+                            [[i["reference_no"], i["title"], i["program"], i["adviser"], i["dean"], (i["submitted_at"] or "")[:16]] for i in items],
+                            [i["work_id"] for i in items])
+        self.empty.setText("" if items else "No submissions are waiting for verification.")
 
     def open(self):
-        aid = self.table.selected_id()
-        if aid is None: return info(self, "Select an item first.")
-        ReviewDialog(self.api, aid, self).exec(); self.refresh()
+        wid = self.table.selected_id()
+        if wid is None: return info(self, "Select a submission first.")
+        VerificationDialog(self.api, wid, self.can_verify, self).exec(); self.refresh()
 
 
-class ReviewHistoryPage(Page):
-    title = "Review History"
+class VerificationHistoryPage(Page):
+    title = "Verification History"
 
     def __init__(self, api, main=None):
         super().__init__(api, main)
-        self.root.addWidget(h1("Review History")); self.table = DataTable(); self.root.addWidget(self.table)
+        self.root.addWidget(h1("Verification History")); self.table = DataTable(); self.root.addWidget(self.table)
 
     def refresh(self):
-        run_async(lambda: self.api.get("/reviews/history")["items"],
-                  lambda items: self.table.set_data(["Title", "My decision", "Comments", "Current status", "When"],
-                                                    [[i["title"], i["decision"], i["comments"], status_text(i["status"]), i["decided_at"][:16]] for i in items]),
+        run_async(lambda: self.api.get("/verifications/history")["items"],
+                  lambda items: self.table.set_data(["Title", "My decision", "Remarks", "Current status", "When"],
+                                                    [[i["title"], "Approved" if i["result"] == "APPROVE" else "Returned", i["remarks"], status_text(i["status"]), i["verified_at"][:16]] for i in items]),
                   lambda e: show_error(self, e))
 
 
 class RepositoryPage(Page):
-    def __init__(self, api, main=None, title="Repository", admin=False):
+    def __init__(self, api, main=None, title="Repository"):
         super().__init__(api, main)
         self.title, self.page_no, self.page_size = title, 1, 20
         self.root.addWidget(h1(title))
-        self.filters = FilterBar(api, with_status=admin); self.root.addWidget(self.filters)
+        self.filters = FilterBar(api); self.root.addWidget(self.filters)
         self.sort = QComboBox(); [self.sort.addItem(l, v) for l, v in (("Newest archived", "archived_at"), ("Title", "title"), ("Year", "year"))]
         self.order = QComboBox(); self.order.addItem("Descending", "desc"); self.order.addItem("Ascending", "asc")
-        self.root.addLayout(hbox(muted("Sort:"), self.sort, self.order, button("Apply filters", "primary", self.apply), button("Clear", slot=self.clear), button("Open", slot=self.open)))
+        self.pub = QComboBox(); self.pub.addItem("Any publication status", None)
+        for k, v in PUBLICATION_LABELS.items(): self.pub.addItem(v, k)
+        row = [muted("Sort:"), self.sort, self.order]
+        if api.role == "LIBRARY_STAFF": row.append(self.pub)           # only Library Staff filter by publication status
+        self.root.addLayout(hbox(*row, button("Apply filters", "primary", self.apply), button("Clear", slot=self.clear), button("Open", slot=self.open)))
         self.table = DataTable(); self.table.doubleClicked.connect(lambda *_: self.open()); self.root.addWidget(self.table)
-        self.info = muted(""); self.prev, self.next = button("◀ Previous", slot=lambda: self.goto(self.page_no - 1)), button("Next ▶", slot=lambda: self.goto(self.page_no + 1))
+        self.info = muted(""); self.prev, self.next = button("< Previous", slot=lambda: self.goto(self.page_no - 1)), button("Next >", slot=lambda: self.goto(self.page_no + 1))
         self.root.addLayout(hbox(self.prev, self.next, self.info))
 
     def apply(self): self.goto(1)
-    def clear(self): self.filters.clear(); self.goto(1)
+    def clear(self): self.filters.clear(); self.pub.setCurrentIndex(0); self.goto(1)
     def refresh(self): self.goto(self.page_no)
-
-    def apply_preset(self, preset):
-        """Dashboard box shortcut, e.g. {"status": "UNDER_PANEL_REVIEW"}; an empty preset clears an earlier shortcut."""
-        st = (preset or {}).get("status")
-        if st:
-            self._preset_on = True; self.filters.set_status(st); self.goto(1)
-        elif getattr(self, "_preset_on", False):
-            self._preset_on = False; self.filters.set_status(None); self.goto(1)
-        else:
-            self.refresh()
 
     def goto(self, n):
         if n < 1: return
         self.page_no = n
-        params = {**self.filters.values(), "sort": self.sort.currentData(), "order": self.order.currentData(), "page": n, "page_size": self.page_size}
+        params = {**self.filters.values(), "publication_status": self.pub.currentData() if self.api.role == "LIBRARY_STAFF" else None, "sort": self.sort.currentData(), "order": self.order.currentData(), "page": n, "page_size": self.page_size}
         run_async(lambda: self.api.get("/repository", **params), self._fill, lambda e: show_error(self, e))
 
     def _fill(self, r):
-        self.table.set_data(["Title", "Authors", "Year", "Program", "Category", "Adviser", "Status"],
-                            [[i["title"], "; ".join(a["name"] for a in i["authors"]), i["year"], i["program"], i["category"], i["adviser"], status_text(i["status"])] for i in r["items"]],
+        self.table.set_data(["Title", "Authors", "Year", "Course", "Adviser", "Dean", "Publication"],
+                            [[i["title"], "; ".join(a["name"] for a in i["authors"]), i["year"], i["program"], i["adviser"], i["dean"], i["publication_label"]] for i in r["items"]],
                             [i["work_id"] for i in r["items"]])
         pages = max(1, -(-r["total"] // r["page_size"]))
         self.info.setText(f"{r['total']} record(s) — page {r['page']} of {pages}" if r["total"] else "No research matches these filters.")
@@ -213,19 +218,19 @@ class SearchPage(Page):
         self.status = muted(""); self.root.addWidget(self.status)
         self.table = DataTable(); self.table.doubleClicked.connect(lambda *_: self.open()); self.root.addWidget(self.table)
         self.snippet = QPlainTextEdit(); self.snippet.setReadOnly(True); self.snippet.setMaximumHeight(110); self.root.addWidget(self.snippet)
-        self.root.addWidget(muted("Semantic relevance is a similarity estimate, not a guarantee of factual relevance."))
+        self.root.addWidget(muted("Relevance combines meaning and matching words. It is an estimate, not a guarantee of factual relevance."))
         self.items = []; self.table.itemSelectionChanged.connect(self._sel)
 
     def search(self):
         q = self.box.text().strip()
-        if len(q) < 3: self.status.setText("Please type at least 3 characters."); return
-        self.status.setText("Searching…"); self.table.setEnabled(False)
+        if len(q) < 2: self.status.setText("Please type at least 2 characters."); return
+        self.status.setText("Searching… (the first search after the server starts can take a little longer)"); self.table.setEnabled(False)
         body = {"query": q, "filters": {k: v for k, v in self.filters.values().items() if v is not None}, "limit": 25}
-        run_async(lambda: self.api.post("/search/semantic", body), self._results, lambda e: (self.table.setEnabled(True), self.status.setText(""), show_error(self, e)))
+        run_async(lambda: self.api.post("/search/semantic", body, timeout=120), self._results, lambda e: (self.table.setEnabled(True), self.status.setText(""), show_error(self, e)))
 
     def _results(self, r):
         self.table.setEnabled(True); self.items = r["results"]
-        self.table.set_data(["Title", "Authors", "Year", "Program", "Adviser", "Category", "Relevance"],
+        self.table.set_data(["Title", "Authors", "Year", "Course", "Adviser", "Category", "Relevance"],
                             [[i["title"], "; ".join(a["name"] for a in i["authors"]), i["year"], i["program"], i["adviser"], i["category"], i["score_label"].replace("Semantic relevance: ", "")] for i in self.items],
                             [i["work_id"] for i in self.items])
         self.snippet.clear()
@@ -325,7 +330,7 @@ class UsersPage(Page):
     def _fill(self, r):
         self.users = {u["user_id"]: u for u in r["items"]}
         self.table.set_data(["Username", "Name", "Role", "Email", "Status", "Last login"],
-                            [[u["username"], u["full_name"], u["role"], u["email"], "Active" if u["status"] == "ACTIVE" else "Deactivated", (u["last_login_at"] or "")[:16]] for u in r["items"]],
+                            [[u["username"], u["full_name"], u["role"] + (" (Head Librarian)" if u.get("is_head_librarian") else ""), u["email"], "Active" if u["status"] == "ACTIVE" else "Deactivated", (u["last_login_at"] or "")[:16]] for u in r["items"]],
                             [u["user_id"] for u in r["items"]])
 
     def new(self):
@@ -358,7 +363,7 @@ class RolesPage(Page):
 
     def __init__(self, api, main=None):
         super().__init__(api, main)
-        self.root.addWidget(h1("Roles")); self.root.addWidget(muted("The eight system roles are required by the workflow and cannot be deleted."))
+        self.root.addWidget(h1("Roles")); self.root.addWidget(muted("The five system roles (Student, Faculty, Library Staff, Administrator, External User) are required by the system and cannot be deleted. The Head Librarian is a Library Staff account designated in User Management."))
         self.table = DataTable(); self.root.addWidget(self.table)
 
     def refresh(self):
@@ -366,12 +371,12 @@ class RolesPage(Page):
 
 
 class LookupsPage(Page):
-    title = "Departments / Programs / Categories"
+    title = "Departments / Courses / Categories"
 
     def __init__(self, api, main=None):
         super().__init__(api, main)
-        self.root.addWidget(h1("Departments, Programs and Categories"))
-        self.kind = QComboBox(); [self.kind.addItem(l, v) for l, v in (("Departments", "departments"), ("Programs", "programs"), ("Research categories", "categories"))]
+        self.root.addWidget(h1("Departments, Courses and Categories"))
+        self.kind = QComboBox(); [self.kind.addItem(l, v) for l, v in (("Departments", "departments"), ("Courses", "programs"), ("Research categories", "categories"))]
         self.kind.currentIndexChanged.connect(self.refresh)
         self.root.addLayout(hbox(self.kind, button("Add", "primary", self.add), button("Rename", slot=self.rename), button("Activate / Deactivate", slot=self.toggle)))
         self.table = DataTable(); self.root.addWidget(self.table); self.items = {}
@@ -418,9 +423,10 @@ class LookupsPage(Page):
 
 
 SETTING_LABELS = {"min_password_length": "Minimum password length", "failed_login_limit": "Failed-login limit", "lockout_minutes": "Lockout duration (minutes)",
-                  "idle_timeout_minutes": "Session idle timeout (minutes)", "max_manuscript_mb": "Max manuscript size (MB)", "max_companion_mb": "Max companion file size (MB)",
+                  "idle_timeout_minutes": "Session idle timeout (minutes)", "max_manuscript_mb": "Max research document (PDF) size (MB)", "max_source_code_mb": "Max source code archive size (MB)",
+                  "max_video_mb": "Max video size (MB)", "max_companion_mb": "Max other supporting file size (MB)",
                   "semantic_threshold": "Semantic threshold (0–1)", "recommendation_count": "Recommendations shown", "log_search_queries": "Log search queries (true/false)",
-                  "offline_panel_skips_dean": "Panel approved offline goes straight to Head Librarian, skipping Dean (true/false)"}
+                  "guest_reading_enabled": "Let visitors without an account read archived research (true/false)"}
 
 
 class SettingsPage(Page):
@@ -433,7 +439,8 @@ class SettingsPage(Page):
         for k, lbl in SETTING_LABELS.items():
             e = QLineEdit(); self.edits[k] = e; self.form.addRow(lbl, e)
         w = QWidget(); w.setLayout(self.form); self.root.addWidget(w)
-        self.root.addLayout(hbox(button("Save settings", "primary", self.save))); self.root.addStretch(1)
+        self.root.addLayout(hbox(button("Save settings", "primary", self.save)))
+        self.root.addStretch(1)
 
     def refresh(self):
         run_async(lambda: self.api.get("/admin/settings"), lambda s: [self.edits[k].setText(str(v)) for k, v in s.items() if k in self.edits], lambda e: show_error(self, e))
@@ -480,7 +487,7 @@ class LogsPage(Page):
         self.kind, self.title, self.n = kind, title, 1
         self.root.addWidget(h1(title)); self.root.addWidget(muted("Read-only. Log entries cannot be edited or deleted from the application."))
         self.table = DataTable(); self.root.addWidget(self.table)
-        self.prev, self.next = button("◀ Newer", slot=lambda: self.go(self.n - 1)), button("Older ▶", slot=lambda: self.go(self.n + 1))
+        self.prev, self.next = button("< Newer", slot=lambda: self.go(self.n - 1)), button("Older >", slot=lambda: self.go(self.n + 1))
         self.lbl = muted(""); self.root.addLayout(hbox(self.prev, self.next, self.lbl))
         self.filter_val = None
         self.filter_lbl = muted(""); self.clear_btn = button("Show all", slot=lambda: self.apply_preset({}, force=True))
@@ -508,8 +515,8 @@ class LogsPage(Page):
         self.table.set_data(cols, rows); self.lbl.setText(f"Page {r['page']}"); self.next.setEnabled(len(rows) == 50); self.prev.setEnabled(r["page"] > 1)
 
 
-REPORT_NAMES = {"submissions": "Submissions Report", "approvals": "Approvals Report", "rejections": "Rejected Submissions Report",
-                "pending-reviews": "Pending Reviews Report", "archived": "Archived Research Report",
+REPORT_NAMES = {"submissions": "Submissions Report", "approvals": "Approvals Report", "returns": "Returned Submissions Report",
+                "pending-verification": "Pending Verification Report", "archived": "Archived Research Report",
                 "user-activity": "User Activity Report", "system-activity": "System Activity Report"}
 
 
@@ -518,24 +525,20 @@ class ReportsPage(Page):
 
     def __init__(self, api, main=None):
         super().__init__(api, main)
-        self.root.addWidget(h1("Reports")); self.root.addWidget(muted("Reports only include data your role is allowed to see."))
+        self.root.addWidget(h1("Reports")); self.root.addWidget(muted("Administrator reports. Each can be exported as CSV."))
         self.kind = QComboBox()
-        for k, v in REPORT_NAMES.items():
-            if k in ("user-activity", "system-activity") and api.role != "ADMIN": continue
-            if api.role == "STUDENT" and k not in ("submissions", "archived"): continue
-            self.kind.addItem(v, k)
+        for k, v in REPORT_NAMES.items(): self.kind.addItem(v, k)
         self.d1, self.d2 = QDateEdit(QDate.currentDate().addMonths(-12)), QDateEdit(QDate.currentDate())
         for d in (self.d1, self.d2): d.setCalendarPopup(True); d.setDisplayFormat("yyyy-MM-dd")
         self.use_dates = QComboBox(); self.use_dates.addItems(["Any date", "Use date range"])
-        self.stage = QComboBox(); self.stage.addItem("Any stage", None); [self.stage.addItem(s.replace("_", " ").title(), s) for s in ("ADVISER", "PANEL", "DEAN", "HEAD_LIBRARIAN")]
         self.status = QComboBox(); self.status.addItem("Any status", None)
-        self.root.addLayout(hbox(self.kind, self.use_dates, self.d1, self.d2, self.stage, self.status))
+        self.root.addLayout(hbox(self.kind, self.use_dates, self.d1, self.d2, self.status))
         self.root.addLayout(hbox(button("Run report", "primary", self.run), button("Export CSV…", slot=self.export)))
         self.info = muted(""); self.root.addWidget(self.info); self.table = DataTable(); self.root.addWidget(self.table)
-        run_async(lambda: self.api.get("/lookups")["statuses"], lambda ss: [self.status.addItem(s["name"], s["id"]) for s in ss], None)
+        run_async(lambda: self.api.get("/lookups")["statuses"], lambda ss: [self.status.addItem(x["name"], x["id"]) for x in ss], None)
 
     def params(self):
-        p = {"stage": self.stage.currentData(), "status": self.status.currentData()}
+        p = {"status": self.status.currentData()}
         if self.use_dates.currentIndex() == 1:
             p["date_from"], p["date_to"] = self.d1.date().toString("yyyy-MM-dd"), self.d2.date().toString("yyyy-MM-dd")
         return {k: v for k, v in p.items() if v}
@@ -597,7 +600,7 @@ class ApiKeysPage(Page):
     def __init__(self, api, main=None):
         super().__init__(api, main)
         self.root.addWidget(h1("Integrations — API keys"))
-        self.root.addWidget(muted("API keys let another system (e.g. the registrar or library catalog) call the ResearchVault integration API (/api/v1). "
+        self.root.addWidget(muted("API keys let another system (e.g. the registrar or library catalog) call the DRASS integration API (/api/v1). "
                                   "Keys are shown once, stored only as a hash, limited to the scopes you choose, and can be revoked."))
         self.root.addLayout(hbox(button("Create API key", "primary", self.create), button("Revoke selected", "danger", self.revoke), button("Refresh", slot=self.refresh)))
         self.table = DataTable(); self.root.addWidget(self.table)
@@ -642,3 +645,45 @@ class ApiKeysPage(Page):
         if kid is None: return info(self, "Select a key first.")
         if confirm(self, "Revoke this key? The external system will stop working immediately."):
             run_async(lambda: self.api.post(f"/admin/api-keys/{kid}/revoke"), lambda _: self.refresh(), lambda e: show_error(self, e))
+
+
+class BackupPage(Page):
+    """Administrator: back up and restore the database and research files (manuscript FR17, NFR6)."""
+    title = "Backup & Recovery"
+
+    def __init__(self, api, main=None):
+        super().__init__(api, main)
+        self.root.addWidget(h1("Backup & Recovery"))
+        self.root.addWidget(muted("A backup holds the database and every research file, with a checksum. Keep the backup folder on separate storage "
+                                  "(external drive or NAS). Restoring replaces the current data; a safety backup of the current state is made first. "
+                                  "Automatic daily backups run through Windows Task Scheduler (see docs/BACKUP_AND_SYNC.md)."))
+        self.where = muted(""); self.root.addWidget(self.where)
+        self.root.addLayout(hbox(button("Back up now", "primary", self.backup), button("Restore selected…", "danger", self.restore), button("Refresh", slot=self.refresh)))
+        self.table = DataTable(); self.root.addWidget(self.table); self.items = {}
+
+    def refresh(self):
+        run_async(lambda: self.api.get("/admin/backups"), self._fill, lambda e: show_error(self, e))
+
+    def _fill(self, r):
+        self.where.setText(f"Backup folder: {r['backup_dir']}")
+        self.items = {i["name"]: i for i in r["items"]}
+        self.table.set_data(["Backup", "Type", "Created", "Research files", "Size (MB)"],
+                            [[i["name"], i["label"], i["created_at"].replace("T", " "), i["file_count"], round(i["storage_bytes"] / 1048576, 1)] for i in r["items"]],
+                            list(range(len(r["items"]))))
+        self._names = [i["name"] for i in r["items"]]
+
+    def backup(self):
+        self.where.setText("Backing up… this can take a while for many files.")
+        run_async(lambda: self.api.request("POST", "/admin/backups", json={}, timeout=3600).json(),
+                  lambda m: (info(self, f"Backup created: {m['name']}"), self.refresh()), lambda e: (self.refresh(), show_error(self, e)))
+
+    def restore(self):
+        idx = self.table.selected_id()
+        if idx is None: return info(self, "Select a backup first.")
+        name = self._names[idx]
+        typed, ok = QInputDialog.getText(self, "Restore backup", f"This REPLACES the database and research files with backup\n{name}\n\nType RESTORE to continue:")
+        if not ok: return
+        if typed.strip() != "RESTORE": return info(self, "Not confirmed. Nothing was changed.")
+        run_async(lambda: self.api.request("POST", "/admin/backups/restore", json={"name": name, "confirm": "RESTORE"}, timeout=3600).json(),
+                  lambda r: (info(self, f"Restored {r['restored']}. A safety backup of the previous state was saved as {r['safety_backup']}.\nSign in again if asked."), self.refresh()),
+                  lambda e: show_error(self, e))

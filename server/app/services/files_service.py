@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from ..core.config import get_settings
 from ..domain.enums import FileType
 from ..domain.errors import NotFound, StorageError
-from ..domain.file_validation import safe_join, sha256_file
+from ..domain.file_validation import describe_limits, safe_join, sha256_file
 from ..models import FileRecord
+from .common import get_setting
 
 
 def subdir(file_type: FileType) -> str:
@@ -64,6 +65,14 @@ def manuscript_path(db: Session, work_id: int) -> str:
     return path
 
 
+def companion_path(rec: FileRecord) -> str:
+    """Absolute path of a stored companion file (source code, video...); never the manuscript."""
+    path = safe_join(str(get_settings().storage_root / "companions"), rec.stored_filename)
+    if not os.path.exists(path):
+        raise StorageError("The file could not be found on the server.")
+    return path
+
+
 def verify_manuscript_integrity(db: Session, work_id: int) -> None:
     rec = active_manuscript(db, work_id)
     if rec is None:
@@ -71,3 +80,16 @@ def verify_manuscript_integrity(db: Session, work_id: int) -> None:
     path = manuscript_path(db, work_id)
     if sha256_file(path) != rec.sha256_checksum:
         raise StorageError("Cannot archive: manuscript checksum mismatch.")
+
+
+LIMIT_SETTING = {FileType.MANUSCRIPT: "max_manuscript_mb", FileType.SOURCE_CODE: "max_source_code_mb",
+                 FileType.VIDEO: "max_video_mb", FileType.OTHER_COMPANION: "max_companion_mb"}
+
+
+def limits_mb(db: Session) -> dict:
+    """Current size limit (MB) for every kind of upload, from the administrator's system settings."""
+    return {t: int(get_setting(db, key)) for t, key in LIMIT_SETTING.items()}
+
+
+def upload_limits(db: Session) -> list[dict]:
+    return describe_limits(limits_mb(db))

@@ -2,38 +2,42 @@
 import threading
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..core.deps import current_user, require
+from ..core.deps import current_user, require, role_of
 from ..db import SessionLocal, get_db
-from ..domain.errors import NotFound, ValidationFailed
-from ..models import ActivityLog, AuditLog, ResearchWork, User, Embedding
-from ..schemas.schemas import (MetadataPatchIn, NameIn, PasswordResetIn, RebuildIn, SemanticSearchIn, SettingsIn,
-                               UserCreateIn, UserPatchIn)
-from ..services import (admin_service, index_service, reader_service, reports_service, repository_service,
-                        search_service)
+from ..domain import rbac
+from ..domain.errors import Forbidden, NotFound, ValidationFailed
+from ..models import ActivityLog, AuditLog, FileRecord, ResearchWork, User, Embedding
+from ..schemas.schemas import (BackupRestoreIn, MetadataPatchIn, NameIn, PasswordResetIn, PublicationIn, RebuildIn,
+                               SemanticSearchIn, SettingsIn, UserCreateIn, UserPatchIn)
+from ..services import (admin_service, backup_service, files_service, index_service, reader_service, reports_service,
+                        repository_service, search_service)
 from ..services.common import activity, audit, get_all_settings, set_setting
 from ..services.serializers import user_dict, work_dict
 
 router = APIRouter()
 
 
-def _filters(program_id, department_id, year, adviser_id, category_id, author, keyword) -> dict:
+def _filters(program_id, department_id, year, adviser_id, dean_id, category_id, author, keyword) -> dict:
     return {"program_id": program_id, "department_id": department_id, "year": year, "adviser_id": adviser_id,
-            "category_id": category_id, "author": author, "keyword": keyword}
+            "dean_id": dean_id, "category_id": category_id, "author": author, "keyword": keyword}
 
 
 # ---------- repository ----------
 @router.get("/repository")
 def repository(program_id: Optional[int] = None, department_id: Optional[int] = None, year: Optional[int] = None,
-               adviser_id: Optional[int] = None, category_id: Optional[int] = None,
+               adviser_id: Optional[int] = None, dean_id: Optional[int] = None, category_id: Optional[int] = None,
                author: Optional[str] = Query(None, max_length=200), keyword: Optional[str] = Query(None, max_length=80),
                sort: str = "archived_at", order: str = "desc", page: int = 1, page_size: int = 20,
-               status: Optional[str] = None, user: User = Depends(require("repository.browse")),
+               publication_status: Optional[str] = None, user: User = Depends(require("repository.browse")),
                db: Session = Depends(get_db)):
+    if publication_status and role_of(user).value != "LIBRARY_STAFF":
+        publication_status = None                       # only Library Staff filter by publication status
     return repository_service.list_repository(
-        db, user, _filters(program_id, department_id, year, adviser_id, category_id, author, keyword),
-        sort, order, page, page_size, status)
+        db, user, _filters(program_id, department_id, year, adviser_id, dean_id, category_id, author, keyword),
+        sort, order, page, page_size, publication_status)
 
 
 @router.get("/repository/{work_id}")
@@ -41,7 +45,7 @@ def repository_detail(work_id: int, user: User = Depends(require("repository.bro
     w = repository_service.get_work_for_user(db, user, work_id)
     activity(db, user.user_id, "RESEARCH_VIEWED", "work", work_id)
     db.commit()
-    d = work_dict(db, w)
+    d = repository_service.detail_for_user(db, user, w)
     d["can_read"] = True
     return d
 
@@ -51,6 +55,32 @@ def repository_patch(work_id: int, body: MetadataPatchIn, user: User = Depends(r
                      db: Session = Depends(get_db)):
     w = repository_service.update_metadata(db, user, work_id, body.model_dump(exclude_unset=True))
     return work_dict(db, w)
+
+
+@router.put("/repository/{work_id}/publication")
+def repository_publication(work_id: int, body: PublicationIn, user: User = Depends(require("publication.manage")),
+                           db: Session = Depends(get_db)):
+    w = repository_service.set_publication_status(db, user, work_id, body.publication_status)
+    return work_dict(db, w)
+
+
+@router.get("/repository/{work_id}/companions/{file_id}")
+def companion_file(work_id: int, file_id: int, user: User = Depends(require("companions.access")), db: Session = Depends(get_db)):
+    """FR15: companion files (source code, video demonstrations) are for Library Staff and the owning student only.
+    The manuscript PDF is never served as a file (FR14, NFR3)."""
+    w = repository_service.get_work_for_user(db, user, work_id)
+    if not rbac.can_access_companions(role_of(user), user.user_id, w.submitted_by):
+        audit(db, user.user_id, "PERMISSION_DENIED", "file", file_id, "DENIED", "companion file")
+        db.commit()
+        raise Forbidden("You do not have permission to open companion files of this research.")
+    f = db.get(FileRecord, file_id)
+    if f is None or f.work_id != work_id or not f.is_active or f.file_type == "MANUSCRIPT":
+        raise NotFound("File not found.")
+    path = files_service.companion_path(f)
+    audit(db, user.user_id, "COMPANION_FILE_OPENED", "file", file_id, details=f.original_filename[:200])
+    db.commit()
+    return FileResponse(path, media_type=f.mime_type or "application/octet-stream", filename=f.original_filename,
+                        headers={"Cache-Control": "no-store"})
 
 
 # ---------- search / recommendations ----------
@@ -83,12 +113,11 @@ def reader_page(work_id: int, page_number: int, scale: float = 1.5, user: User =
 # ---------- reports ----------
 @router.get("/reports/{kind}")
 def report(kind: str, date_from: Optional[str] = None, date_to: Optional[str] = None, program_id: Optional[int] = None,
-           department_id: Optional[int] = None, status: Optional[str] = None, stage: Optional[str] = None,
+           department_id: Optional[int] = None, status: Optional[str] = None,
            role: Optional[str] = None, user_id: Optional[int] = None, format: str = "json",
            user: User = Depends(require("reports.any")), db: Session = Depends(get_db)):
-    kind = {"rejections": "rejections", "rejected": "rejections"}.get(kind, kind)
     f = {k: v for k, v in dict(date_from=date_from, date_to=date_to, program_id=program_id, department_id=department_id,
-                               status=status, stage=stage, role=role, user_id=user_id).items() if v not in (None, "")}
+                               status=status, role=role, user_id=user_id).items() if v not in (None, "")}
     result = reports_service.run(db, user, kind, f)
     if format == "csv":
         return Response(reports_service.to_csv(result), media_type="text/csv",
@@ -224,3 +253,31 @@ def rebuild(body: RebuildIn, tasks: BackgroundTasks, user: User = Depends(requir
     db.commit()
     tasks.add_task(index_service.rebuild, SessionLocal, body.mode, user.user_id)
     return {"success": True, "started": body.mode}
+
+
+# ---------- admin: backup and restoration (FR17, NFR6) ----------
+@router.get("/admin/backups")
+def backups(user: User = Depends(require("backup.manage"))):
+    return {"items": backup_service.list_backups(), "backup_dir": str(backup_service.backup_root())}
+
+
+@router.post("/admin/backups")
+def backup_now(user: User = Depends(require("backup.manage")), db: Session = Depends(get_db)):
+    info = backup_service.create_backup(label="manual")
+    audit(db, user.user_id, "BACKUP_CREATED", "backup", info["name"], details=f"{info['file_count']} files")
+    db.commit()
+    return info
+
+
+@router.post("/admin/backups/restore")
+def backup_restore(body: BackupRestoreIn, user: User = Depends(require("backup.manage")), db: Session = Depends(get_db)):
+    if body.confirm != "RESTORE":
+        raise ValidationFailed("Type RESTORE to confirm the restoration.", {"confirm": "Type RESTORE."})
+    uid, name = user.user_id, body.name
+    db.close()                                                  # release this request's connection before the database is replaced
+    result = backup_service.restore_backup(name)               # takes a safety backup first, then replaces database and files
+    from ..db import SessionLocal
+    with SessionLocal() as db2:                                # the restored database is the new truth: record the action there too
+        audit(db2, uid, "BACKUP_RESTORED", "backup", name, details=f"safety backup {result['safety_backup']}")
+        db2.commit()
+    return result
