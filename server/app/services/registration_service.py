@@ -29,15 +29,15 @@ def register_student(db: Session, d: dict) -> User:
         raise ValidationFailed(GENERIC, {"student_number": "Could not be verified."})
     if db.scalar(select(User).where(User.student_number == sn)):
         raise Conflict("An account already exists for this student ID. Ask the administrator to reset your password if you forgot it.")
-    if db.scalar(select(User).where(User.username == d["username"])):
-        raise ValidationFailed("That username is taken.", {"username": "Already taken."})
+    if db.scalar(select(User).where(func.upper(User.username) == sn)):
+        raise Conflict("This student ID is already in use as a username. Contact the administrator.")
     if db.scalar(select(User).where(User.email == d["email"])):
         raise ValidationFailed("That email is already registered.", {"email": "Already registered."})
     problems = ar.password_problems(d["password"], auth_policy(db))
     if problems:
         raise ValidationFailed(problems[0], {"password": problems[0]})
     role = db.scalar(select(RoleModel).where(RoleModel.role_name == "STUDENT"))
-    u = User(username=d["username"], password_hash=hash_password(d["password"]), role_id=role.role_id,
+    u = User(username=sn, password_hash=hash_password(d["password"]), role_id=role.role_id,
              full_name=f"{row.first_name} {row.last_name}", email=d["email"], student_number=sn,
              department_id=row.department_id)
     db.add(u)
@@ -47,7 +47,7 @@ def register_student(db: Session, d: dict) -> User:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise Conflict("An account already exists for this student ID or username.")
+        raise Conflict("An account already exists for this student ID.")
     return u
 
 

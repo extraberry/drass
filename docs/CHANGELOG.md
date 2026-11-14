@@ -1,5 +1,26 @@
 # DRASS - Change log (latest round first)
 
+## Round 15 - fonts match design A
+- Body text now uses **Inter**, included in `client/app/resources/fonts/` (SIL Open Font License). Headings use **Source Serif 4** when its files are added to that folder (see `fonts/README.txt`); until then they fall back to Georgia. All `.ttf`/`.otf` files in that folder are loaded at start-up (`style.load_fonts`).
+
+## Round 14 - graphite (C) becomes the default look, new app icon
+- The app now opens in the dark Graphite theme by default (the first time after this update); the Light/Dark button still switches and the choice is remembered.
+- New app icon: the open-book mark (navy book on a gold tile) (`client/app/resources/app_icon.png`, plus `app_icon.ico` for shortcuts). The Windows taskbar shows it instead of the Python icon.
+- The logo in the header and on the login screen is the same in both themes: navy book on a gold tile (`logo_book.svg`).
+
+## Round 13 - formal UI (design A "Institutional Navy" light, design C "Graphite" dark)
+- `client/app/style.py`: new light and dark colour sets; Georgia headings with Segoe UI body text (both ship with Windows); flat navy header with a gold line (no rounded corners); white sidebar with a left accent bar on the selected item; cards and tables have a thin border; the tick colour follows the theme.
+- New `client/app/resources/logo_book.svg` (open-book mark on a gold tile) used in the header and on the login screen. The school seal stays at the right of the header. The old overlapping ribbon is removed.
+- The dark theme uses a teal accent; ticks and primary buttons use dark text on teal for contrast.
+- Written, not run here (PySide6 is not available in the build sandbox). Check both themes on a PC and report anything that looks different from the mockups.
+
+## Round 12 - student ID is the username
+- Student self-registration no longer asks for a username. The account username is the student ID (stored in upper case), e.g. `2023-0101`.
+- Sign-in accepts the student ID for any student account (case-insensitive), including accounts created earlier with another username, so no migration is needed.
+- Login screen label: "Student ID / Username". Staff, faculty, administrator and external accounts still use their usernames.
+- The Administrator can still edit a username; the student ID remains in the `student_number` column either way.
+- Tests updated (`test_guest_register.py`); written, not run here.
+
 ## Round 11 - demo polish
 - Product name is **DRASS** again everywhere (the interim "ResearchVault" name is removed from the client, server, scripts and docs). New reference numbers use `DRASS-<year>-<number>`; older `RV-` references are left as they are. If your `.env` has `APP_NAME=ResearchVault`, change or delete that line.
 - Submission form: examples for Author(s) (`Full Name, Student Number`, one per line) and Keywords (comma-separated), as grey placeholders and as always-visible hints under the fields.

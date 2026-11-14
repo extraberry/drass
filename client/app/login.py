@@ -1,8 +1,8 @@
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 from . import style
-from .brand import APP_NAME, INSTITUTION, TAGLINE, res
+from .brand import APP_NAME, INSTITUTION, TAGLINE, logo_icon, res
 from .widgets import button, h1, muted
 from .worker import run_async
 
@@ -16,9 +16,7 @@ class LoginWindow(QWidget):
         self.api = api
         self.setObjectName("login"); self.setWindowTitle(f"{APP_NAME} — Sign in"); self.setFixedSize(460, 640)
         lay = QVBoxLayout(self); lay.setContentsMargins(40, 30, 40, 30)
-        top = QHBoxLayout(); logo = QLabel(); pm = QPixmap(res("seal.png"))
-        if not pm.isNull():
-            logo.setPixmap(pm.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)); top.addWidget(logo)
+        top = QHBoxLayout(); self.logo = logo = QLabel(); logo.setPixmap(logo_icon().pixmap(52, 52)); top.addWidget(logo); top.addSpacing(6)
         title = QLabel(APP_NAME); title.setObjectName("wordmark")        # bold + condensed (tight letter spacing)
         f = title.font(); f.setLetterSpacing(QFont.PercentageSpacing, 88); title.setFont(f)
         top.addWidget(title); top.addStretch(1)
@@ -29,8 +27,8 @@ class LoginWindow(QWidget):
         form = QFormLayout()
         self.user, self.pw, self.server = QLineEdit(), QLineEdit(), QLineEdit(api.base)
         self.pw.setEchoMode(QLineEdit.Password)
-        self.user.setPlaceholderText("Username"); self.pw.setPlaceholderText("Password")
-        form.addRow("Username", self.user); form.addRow("Password", self.pw); form.addRow("Server", self.server)
+        self.user.setPlaceholderText("Student ID or username"); self.pw.setPlaceholderText("Password")
+        form.addRow("Student ID / Username", self.user); form.addRow("Password", self.pw); form.addRow("Server", self.server)
         lay.addLayout(form)
         self.msg = QLabel(message); self.msg.setObjectName("error"); self.msg.setWordWrap(True); lay.addWidget(self.msg)
         self.btn = button("Sign in", "primary", self.submit); lay.addWidget(self.btn)
@@ -41,7 +39,7 @@ class LoginWindow(QWidget):
         self.pw.returnPressed.connect(self.submit); self.user.returnPressed.connect(self.pw.setFocus)
 
     def toggle_theme(self):
-        style.toggle_theme(QApplication.instance()); self.theme_btn.setText(style.theme_button_text())
+        style.toggle_theme(QApplication.instance()); self.theme_btn.setText(style.theme_button_text()); self.logo.setPixmap(logo_icon().pixmap(52, 52))
 
     def register(self):
         from .dialogs.register_dialog import RegisterDialog
@@ -50,7 +48,7 @@ class LoginWindow(QWidget):
 
     def submit(self):
         if not self.user.text().strip() or not self.pw.text():
-            self.msg.setText("Enter your username and password."); return
+            self.msg.setText("Enter your student ID (or username) and password."); return
         self.api.base = self.server.text().strip().rstrip("/")
         self.btn.setEnabled(False); self.msg.setText("Signing in…")
         u, p = self.user.text().strip(), self.pw.text()

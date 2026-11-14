@@ -4,69 +4,86 @@ from PySide6.QtGui import QColor, QPalette, QPixmap, QPainter, QPen
 import os
 import tempfile
 
-THEMES = {
-    "light": dict(text="#0F2854", muted="#697498", bg="#BBCAE6", panel="#C9D1E0", header="#0F2854", dialog="#EEF2FA",
-                  input="#FFFFFF", border="#A9B6D3", nav_hover="#D6DDEB", card_hover="#D8DFEC", btn="#FFFFFF", btn_hover="#EEF2FA",
-                  btn_disabled="#8A94AE", primary="#0F2854", primary_hover="#1B3A78", primary_text="#FFFFFF", table_alt="#F3F6FB",
-                  grid="#DDE3F0", th="#0F2854", th_text="#FFFFFF", danger="#B00020", select="#0F2854", select_text="#FFFFFF",
-                  shadow="#7C8AA8"),
-    "dark": dict(text="#E4EAF7", muted="#9AA8C7", bg="#0E1627", panel="#17233B", header="#0A1A3C", dialog="#131E34",
-                 input="#0E1627", border="#35476C", nav_hover="#1F2F4F", card_hover="#1F2E4A", btn="#1D2B47", btn_hover="#28395C",
-                 btn_disabled="#6C7896", primary="#4B7BE0", primary_hover="#6490EE", primary_text="#FFFFFF", table_alt="#13203A",
-                 grid="#27385A", th="#22345A", th_text="#FFFFFF", danger="#FF7A8A", select="#4B7BE0", select_text="#FFFFFF",
-                 shadow="#000000"),
+THEMES = {   # light = "Institutional Navy" (approved design A), dark = "Graphite" (design C)
+    "light": dict(text="#1B2433", muted="#4B5668", bg="#F4F6FA", panel="#FFFFFF", header="#14284B", dialog="#F4F6FA",
+                  input="#FFFFFF", border="#8E9BB3", nav_hover="#EEF2F9", card_hover="#F4F7FC", btn="#FFFFFF", btn_hover="#EEF2F9",
+                  btn_disabled="#7A8499", primary="#14284B", primary_hover="#23407A", primary_text="#FFFFFF", table_alt="#F4F6FA",
+                  grid="#E1E6F0", th="#14284B", th_text="#FFFFFF", danger="#B00020", select="#14284B", select_text="#FFFFFF",
+                  shadow="#7C8AA8", card_border="#D5DCE8", nav_sel="#E8EDF7", header_line="#D9B45A", tick="#FFFFFF",
+                  header_btn="#FFFFFF", header_btn_text="#14284B", header_btn_hover="#E8EDF7"),
+    "dark": dict(text="#DDE3EF", muted="#9AA7BD", bg="#0F1420", panel="#171E2E", header="#0B101A", dialog="#0F1420",
+                 input="#0F1420", border="#5A6884", nav_hover="#1B2438", card_hover="#1E2840", btn="#171E2E", btn_hover="#222C45",
+                 btn_disabled="#6C7896", primary="#8FA9E0", primary_hover="#A9BDEA", primary_text="#0C1630", table_alt="#131A29",
+                 grid="#27314A", th="#1E2A44", th_text="#E6EBF5", danger="#FF7A8A", select="#8FA9E0", select_text="#0C1630",
+                 shadow="#000000", card_border="#2A344B", nav_sel="#1E2A44", header_line="#2A344B", tick="#0C1630",
+                 header_btn="#171E2E", header_btn_text="#E6EBF5", header_btn_hover="#222C45"),
 }
 
 
 _TICK = {}
 
 
-def _tick_url() -> str:
+def _tick_url(color: str = "#FFFFFF") -> str:
     """A white check mark (PNG) for ticked boxes, drawn once; QSS cannot draw a tick by itself, so without it a ticked box looks empty."""
-    if "url" not in _TICK:
+    if color not in _TICK:
         try:
-            path = os.path.join(tempfile.gettempdir(), "drass_tick.png")
+            path = os.path.join(tempfile.gettempdir(), f"drass_tick_{color.strip(chr(35))}.png")
             pm = QPixmap(32, 32); pm.fill(QColor(0, 0, 0, 0))
             pt = QPainter(pm); pt.setRenderHint(QPainter.Antialiasing)
-            pen = QPen(QColor("#FFFFFF")); pen.setWidth(5); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin); pt.setPen(pen)
+            pen = QPen(QColor(color)); pen.setWidth(5); pen.setCapStyle(Qt.RoundCap); pen.setJoinStyle(Qt.RoundJoin); pt.setPen(pen)
             pt.drawLine(7, 17, 13, 23); pt.drawLine(13, 23, 25, 9); pt.end()
             pm.save(path, "PNG")
-            _TICK["url"] = path.replace("\\", "/")
+            _TICK[color] = path.replace("\\", "/")
         except Exception:
-            _TICK["url"] = ""
-    return _TICK["url"]
+            _TICK[color] = ""
+    return _TICK[color]
+
+
+def load_fonts() -> list:
+    """Register every .ttf/.otf in resources/fonts (Inter ships with DRASS; add Source Serif 4 there for the serif headings)."""
+    from PySide6.QtGui import QFontDatabase
+    folder = os.path.join(os.path.dirname(__file__), "resources", "fonts")
+    loaded = []
+    try:
+        for name in sorted(os.listdir(folder)):
+            if name.lower().endswith((".ttf", ".otf")) and QFontDatabase.addApplicationFont(os.path.join(folder, name)) >= 0:
+                loaded.append(name)
+    except OSError:
+        pass
+    return loaded
 
 
 def build_qss(t: dict) -> str:
-    tick = _tick_url()
+    tick = _tick_url(t['tick'])
     tick_img = f"image: url({tick});" if tick else ""
     return f"""
-* {{ font-family: 'Segoe UI', Arial, sans-serif; font-size: 10.5pt; color: {t['text']}; }}
+* {{ font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-size: 10.5pt; color: {t['text']}; }}
 QLabel {{ background: transparent; }}
 QMainWindow {{ background: {t['bg']}; }}
 QDialog, QMessageBox {{ background: {t['dialog']}; }}
 QWidget#login {{ background: {t['dialog']}; }}
 QWidget#page {{ background: transparent; }}
 QWidget#content {{ background: {t['bg']}; }}
-QLabel#h1 {{ font-size: 19pt; font-weight: 400; color: {t['text']}; }}
-QLabel#wordmark {{ font-size: 23pt; font-weight: 700; color: {t['text']}; }}
-QLabel#h2 {{ font-size: 12pt; font-weight: 600; color: {t['text']}; }}
+QLabel#h1 {{ font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 20pt; font-weight: 600; color: {t['text']}; }}
+QLabel#wordmark {{ font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 22pt; font-weight: 700; color: {t['text']}; }}
+QLabel#h2 {{ font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 13pt; font-weight: 600; color: {t['text']}; }}
 QLabel#muted {{ color: {t['muted']}; }}
 QLabel#error {{ color: {t['danger']}; }}
 QLabel#clock {{ color: {t['muted']}; font-size: 9pt; }}
-QFrame#header {{ background: {t['header']}; border-bottom-left-radius: 22px; border-bottom-right-radius: 22px; }}
+QFrame#header {{ background: {t['header']}; border-bottom: 3px solid {t['header_line']}; }}
+QLabel#brand {{ font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; font-size: 17pt; font-weight: 700; color: #FFFFFF; }}
 QFrame#header QLabel {{ color: #FFFFFF; }}
-QFrame#header QPushButton {{ background: #FFFFFF; color: #0F2854; border: none; border-radius: 6px; padding: 4px 10px; }}
-QFrame#header QPushButton:hover {{ background: #E6ECF8; }}
-QFrame#sidebar {{ background: {t['panel']}; border: none; }}
+QFrame#header QPushButton {{ background: {t['header_btn']}; color: {t['header_btn_text']}; border: none; border-radius: 6px; padding: 4px 10px; }}
+QFrame#header QPushButton:hover {{ background: {t['header_btn_hover']}; }}
+QFrame#sidebar {{ background: {t['panel']}; border: none; border-right: 1px solid {t['card_border']}; }}
 QListWidget#nav {{ background: transparent; border: none; font-size: 11.5pt; outline: 0; }}
-QListWidget#nav::item {{ padding: 7px 20px; color: {t['text']}; border-radius: 8px; margin: 0; }}
-QListWidget#nav::item:selected {{ background: {t['bg']}; color: {t['text']}; }}
+QListWidget#nav::item {{ padding: 8px 17px; color: {t['text']}; border-radius: 6px; border-left: 3px solid transparent; margin: 1px 10px; }}
+QListWidget#nav::item:selected {{ background: {t['nav_sel']}; color: {t['text']}; border-left: 3px solid {t['primary']}; font-weight: 600; }}
 QListWidget#nav::item:hover {{ background: {t['nav_hover']}; }}
-QFrame#card, QFrame#statcard {{ background: {t['panel']}; border: none; border-radius: 8px; }}
+QFrame#card, QFrame#statcard {{ background: {t['panel']}; border: 1px solid {t['card_border']}; border-radius: 8px; }}
 QFrame#statcard:hover {{ background: {t['card_hover']}; }}
-QFrame#statcard:focus {{ border: 2px solid {t['text']}; }}
-QPushButton {{ color: {t['text']}; background: {t['btn']}; border: 1px solid {t['border']}; border-radius: 8px; padding: 7px 16px; }}
+QFrame#statcard:focus {{ border: 2px solid {t['primary']}; }}
+QPushButton {{ color: {t['text']}; background: {t['btn']}; border: 1px solid {t['border']}; border-radius: 6px; padding: 7px 16px; }}
 QPushButton:hover {{ background: {t['btn_hover']}; }}
 QPushButton:disabled {{ color: {t['btn_disabled']}; }}
 QPushButton#primary {{ background: {t['primary']}; color: {t['primary_text']}; border: 1px solid {t['primary']}; }}
@@ -82,7 +99,7 @@ QCheckBox::indicator:indeterminate {{ background: {t['muted']}; border-color: {t
 QCheckBox::indicator:disabled {{ border-color: {t['btn_disabled']}; }}
 QRadioButton::indicator {{ width: 16px; height: 16px; border: 2px solid {t['text']}; border-radius: 10px; background: {t['input']}; }}
 QRadioButton::indicator:checked {{ background: {t['primary']}; border-color: {t['primary']}; }}
-QTableWidget {{ color: {t['text']}; background: {t['input']}; alternate-background-color: {t['table_alt']}; gridline-color: {t['grid']}; border: none; border-radius: 6px; selection-background-color: {t['select']}; selection-color: {t['select_text']}; }}
+QTableWidget {{ color: {t['text']}; background: {t['input']}; alternate-background-color: {t['table_alt']}; gridline-color: {t['grid']}; border: 1px solid {t['card_border']}; border-radius: 6px; selection-background-color: {t['select']}; selection-color: {t['select_text']}; }}
 QHeaderView::section {{ background: {t['th']}; color: {t['th_text']}; padding: 6px; border: none; }}
 QScrollArea {{ background: transparent; border: none; }}
 QToolTip {{ color: {t['text']}; background: {t['input']}; border: 1px solid {t['border']}; }}
@@ -101,13 +118,14 @@ def _palette(t: dict) -> QPalette:
 
 def saved_theme() -> str:
     try:
-        v = QSettings("MaryTheQueenCollege", "DRASS").value("theme", "light")
+        st = QSettings("MaryTheQueenCollege", "DRASS")
+        v = st.value("theme", "dark") if st.value("theme_v13") else "dark"      # new look: dark (graphite) is the default once
     except Exception:
-        v = "light"
-    return v if v in THEMES else "light"
+        v = "dark"
+    return v if v in THEMES else "dark"
 
 
-_current = "light"
+_current = "dark"
 
 
 def current_theme() -> str:
@@ -123,7 +141,7 @@ def apply_theme(app, name: str, remember: bool = True) -> str:
     app.setStyleSheet(build_qss(THEMES[name]))
     if remember:
         try:
-            QSettings("MaryTheQueenCollege", "DRASS").setValue("theme", name)
+            st = QSettings("MaryTheQueenCollege", "DRASS"); st.setValue("theme", name); st.setValue("theme_v13", "1")
         except Exception:
             pass
     return name

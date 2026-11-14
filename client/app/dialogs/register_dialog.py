@@ -8,16 +8,16 @@ class RegisterDialog(QDialog):
     def __init__(self, api, parent=None):
         super().__init__(parent)
         self.api = api
-        self.setWindowTitle("Create student account"); self.resize(480, 460)
+        self.setWindowTitle("Create student account"); self.resize(480, 420)
         lay = QVBoxLayout(self)
         lay.addWidget(h1("Create student account"))
-        lay.addWidget(muted("For enrolled students only. Your student ID and last name are checked against the registrar list. Each student can have one account."))
+        lay.addWidget(muted("For enrolled students only. Your student ID and last name are checked against the registrar list. Each student can have one account. Your student ID will be your username."))
         form = QFormLayout()
-        self.sn, self.last, self.user, self.email = QLineEdit(), QLineEdit(), QLineEdit(), QLineEdit()
+        self.sn, self.last, self.email = QLineEdit(), QLineEdit(), QLineEdit()
         self.pw, self.pw2 = QLineEdit(), QLineEdit()
         for e in (self.pw, self.pw2): e.setEchoMode(QLineEdit.Password)
         self.sn.setPlaceholderText("e.g. 2023-0101")
-        for lbl, w in (("Student ID *", self.sn), ("Last name *", self.last), ("Username *", self.user), ("Email *", self.email),
+        for lbl, w in (("Student ID *", self.sn), ("Last name *", self.last), ("Email *", self.email),
                        ("Password *", self.pw), ("Confirm password *", self.pw2)):
             form.addRow(lbl, w)
         lay.addLayout(form)
@@ -28,11 +28,11 @@ class RegisterDialog(QDialog):
     def submit(self):
         if self.pw.text() != self.pw2.text():
             self.msg.setText("The two passwords do not match."); return
-        body = {"student_number": self.sn.text().strip(), "last_name": self.last.text().strip(), "username": self.user.text().strip(),
+        body = {"student_number": self.sn.text().strip(), "last_name": self.last.text().strip(),
                 "email": self.email.text().strip(), "password": self.pw.text()}
         self.btn.setEnabled(False); self.msg.setText("Creating account…")
         def ok(r):
-            info(self, "Account created. You can now sign in with your username and password."); self.accept()
+            info(self, f"Account created. Sign in with your student ID ({body['student_number'].upper()}) and your password."); self.accept()
         def fail(e):
             self.btn.setEnabled(True)
             f = getattr(e, "fields", None) or {}

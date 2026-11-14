@@ -19,6 +19,8 @@ def login(db: Session, username: str, password: str) -> tuple[str, User]:
     now, pol = utcnow(), auth_policy(db)
     username = (username or "").strip()
     user = db.scalar(select(User).where(User.username == username)) if username else None
+    if user is None and username:                          # students sign in with their student ID
+        user = db.scalar(select(User).where(User.student_number == username.upper()))
     if user is None:
         verify_password(password or "", _DUMMY_HASH)          # equalise timing
         audit(db, None, "LOGIN_FAILED", "user", None, "FAILED", "unknown credentials")

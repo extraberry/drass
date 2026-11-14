@@ -128,9 +128,8 @@ class MetadataPatchIn(BaseModel):
 class StudentRegisterIn(BaseModel):
     student_number: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9-]+$")
     last_name: str = Field(min_length=1, max_length=100)
-    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     email: str = Field(max_length=150, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(max_length=200)
+    password: str = Field(max_length=200)        # the username is the student ID; no username field
 
 
 class RosterIn(BaseModel):

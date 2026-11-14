@@ -47,7 +47,12 @@ class STEmbedder:
             from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer(str(path), device="cpu")
         except Exception as exc:   # noqa: BLE001
-            raise EmbeddingUnavailable(f"Could not load embedding model: {exc}")
+            import traceback
+            logging.getLogger("drass.app").error("Embedding model failed to load. Full cause:\n%s", traceback.format_exc())   # shows the hidden original error in the server window
+            root = exc
+            while root.__cause__ is not None or (root.__context__ is not None and root.__context__ is not root):
+                root = root.__cause__ or root.__context__
+            raise EmbeddingUnavailable(f"Could not load embedding model: {exc} (root cause: {type(root).__name__}: {root})")
         self.model_name = "all-MiniLM-L6-v2"
 
     def encode(self, texts: list[str]) -> np.ndarray:

@@ -8,7 +8,7 @@ from client.app.api import ApiClient
 from client.app.login import LoginWindow
 from client.app.main_window import MainWindow
 from client.app.brand import APP_NAME, res
-from client.app.style import apply_theme, saved_theme
+from client.app.style import apply_theme, load_fonts, saved_theme
 from client.app.worker import bus
 
 
@@ -48,9 +48,15 @@ class Controller:
 
 
 def main():
+    try:                                   # Windows: show the DRASS icon on the taskbar instead of the Python icon
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MaryTheQueenCollege.DRASS")
+    except Exception:
+        pass
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME); app.setOrganizationName("MaryTheQueenCollege")
     app.setWindowIcon(QIcon(res("app_icon.png")))
+    load_fonts()                                      # Inter (included) and, if added, Source Serif 4
     apply_theme(app, saved_theme(), remember=False)   # Fusion style + light/dark palette (ignores Windows theme)
     ctl = Controller()   # noqa: F841 keep reference
     sys.exit(app.exec())

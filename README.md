@@ -1,11 +1,6 @@
-<<<<<<< HEAD
 # DRASS — Digital Research Archiving System with Semantic Search
 *(Earlier builds were branded "ResearchVault"; the name is now DRASS everywhere. Internal names such as the `drass` database, `drass_user` and the project folder are unchanged.)*
 **Mary the Queen College of Quezon City, Inc.** — desktop research archive for newly submitted theses and capstone projects.
-=======
-# Digital Research Archiving System with Semantic Search
-*(formerly "DRASS"; internal names such as the `drass` database, `drass_user` and the project folder are unchanged on purpose.)* desktop research archive for newly submitted theses and capstone projects.
->>>>>>> b9eea4f8b2e0b5a622885bbc51c40deba792c754
 
 > **Status:** all code in this repository was written without being able to install the dependencies or run MySQL in the authoring sandbox.
 > Only the pure-Python tests (`server/tests/test_domain.py`, 43 tests, and `server/tests/test_migration.py`, 9 tests) were executed there. The API, database layer, client and

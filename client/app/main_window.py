@@ -1,10 +1,10 @@
 from PySide6.QtCore import QDateTime, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect, QPushButton
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QStackedWidget,
                                QVBoxLayout, QWidget)
 from . import style
-from .brand import APP_NAME, INSTITUTION, TAGLINE, res
+from .brand import APP_NAME, INSTITUTION, TAGLINE, logo_icon, res
 from .views import pages as P
 from .widgets import button, muted
 from .worker import run_async
@@ -39,11 +39,12 @@ class MainWindow(QMainWindow):
         self.api = api
         self.setWindowTitle(f"{APP_NAME} — {INSTITUTION}"); self.resize(1280, 820)
         root = QWidget(); self.setCentralWidget(root); outer = QVBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
-        header = QFrame(); header.setObjectName("header"); header.setFixedHeight(86)
-        hl = QHBoxLayout(header); hl.setContentsMargins(128, 0, 31, 0); hl.setSpacing(3)
-        t = QLabel(f"<b>{APP_NAME} - {TAGLINE}</b>"); t.setStyleSheet("font-size: 12.5pt;")
-        sub = QLabel(f"<b>{INSTITUTION}</b>")
-        left = QVBoxLayout(); left.setSpacing(2); left.addWidget(t); left.addWidget(sub)
+        header = QFrame(); header.setObjectName("header"); header.setFixedHeight(68)
+        hl = QHBoxLayout(header); hl.setContentsMargins(24, 0, 24, 0); hl.setSpacing(6)
+        self.mark = QLabel(); self.mark.setPixmap(logo_icon().pixmap(40, 40)); hl.addWidget(self.mark); hl.addSpacing(8)
+        t = QLabel(APP_NAME); t.setObjectName("brand"); f = t.font(); f.setLetterSpacing(QFont.PercentageSpacing, 108); t.setFont(f)
+        sub = QLabel(f"{TAGLINE}  ·  {INSTITUTION}"); sub.setStyleSheet("font-size: 9pt;")
+        left = QVBoxLayout(); left.setSpacing(0); left.addWidget(t); left.addWidget(sub)
         hl.addLayout(left); hl.addStretch(1)
         u = api.user
         self.guest = u["role"] == "GUEST"
@@ -65,10 +66,10 @@ class MainWindow(QMainWindow):
         hl.addSpacing(24)
         self.seal = QLabel(); spm = QPixmap(res("seal.png"))
         if not spm.isNull():
-            self.seal.setPixmap(spm.scaled(69, 69, Qt.KeepAspectRatio, Qt.SmoothTransformation)); hl.addWidget(self.seal)
+            self.seal.setPixmap(spm.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)); hl.addWidget(self.seal)
         outer.addWidget(header)
         body = QHBoxLayout(); body.setSpacing(0); outer.addLayout(body, 1)
-        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(255); sl = QVBoxLayout(side); sl.setContentsMargins(0, 42, 0, 8)
+        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(235); sl = QVBoxLayout(side); sl.setContentsMargins(0, 16, 0, 8)
         self.nav = QListWidget(); self.nav.setObjectName("nav"); sl.addWidget(self.nav); body.addWidget(side)
         content = QWidget(); content.setObjectName("content"); right = QVBoxLayout(content); right.setContentsMargins(0, 0, 0, 0); body.addWidget(content, 1)
         self.crumb = muted(""); self.crumb.setContentsMargins(32, 14, 20, 0); right.addWidget(self.crumb)
@@ -77,13 +78,7 @@ class MainWindow(QMainWindow):
         self.items = _nav(u["role"], api); self.pages = {}
         for label, _ in self.items: self.nav.addItem(QListWidgetItem(label))
         self.nav.currentRowChanged.connect(self.show_page)
-        # cream ribbon with the archive icon, overlapping the header (as in the approved design)
-        self.ribbon = QLabel(root); pm = QPixmap(res("ribbon.png"))
-        if pm.isNull():
-            self.ribbon.hide()
-        else:
-            self.ribbon.setPixmap(pm.scaled(66, 85, Qt.KeepAspectRatio, Qt.SmoothTransformation)); self.ribbon.adjustSize(); self.ribbon.move(33, 0); self.ribbon.raise_()
-            sh = QGraphicsDropShadowEffect(self.ribbon); sh.setBlurRadius(10); sh.setOffset(0, 2); sh.setColor(QColor(0, 0, 0, 110)); self.ribbon.setGraphicsEffect(sh)
+        self.ribbon = QLabel(root); self.ribbon.hide()          # the old overlapping ribbon is replaced by the book mark in the header
         self.nav.setCurrentRow(0)
         self.timer = QTimer(self); self.timer.setInterval(60_000); self.timer.timeout.connect(self.poll); self.timer.start(); self.poll()
         self.tick = QTimer(self); self.tick.setInterval(1000); self.tick.timeout.connect(self._clock); self.tick.start(); self._clock()
@@ -128,7 +123,7 @@ class MainWindow(QMainWindow):
     def set_unread(self, n): self.bell.setText(str(n))
 
     def toggle_theme(self):
-        style.toggle_theme(QApplication.instance()); self._theme_icon()
+        style.toggle_theme(QApplication.instance()); self._theme_icon(); self.mark.setPixmap(logo_icon().pixmap(40, 40))
 
     def _theme_icon(self):
         self.theme_btn.setIcon(QIcon(res("sun.svg" if style.current_theme() == "dark" else "moon.svg")))

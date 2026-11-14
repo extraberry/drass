@@ -1,7 +1,7 @@
 import pytest
 from server.tests.helpers import DEMO_PASSWORD, login, new_draft, ready_submission
 
-REG = {"student_number": "2023-0101", "last_name": "Reyes", "username": "carla", "email": "carla@school.edu", "password": "longenough1"}
+REG = {"student_number": "2023-0101", "last_name": "Reyes", "email": "carla@school.edu", "password": "longenough1"}
 
 
 # ---------------- guest access (no login) ----------------
@@ -75,7 +75,7 @@ def test_guest_search_is_rate_limited(client):
 def test_student_can_register_and_login(client):
     r = client.post("/auth/register-student", json=REG)
     assert r.status_code == 200 and r.json()["success"] is True
-    h = login(client, "carla", "longenough1")
+    h = login(client, "2023-0101", "longenough1")
     me = client.get("/auth/me", headers=h).json()
     assert me["role"] == "STUDENT" and me["full_name"] == "Carla Reyes" and me["student_number"] == "2023-0101"
     assert client.get("/submissions", headers=h).status_code == 200
@@ -94,28 +94,27 @@ def test_registration_requires_roster_id_and_matching_surname(client):
     b = client.post("/auth/register-student", json={**REG, "student_number": "9999-9999"})
     assert a.status_code == b.status_code == 422
     assert a.json()["message"] == b.json()["message"]                    # no hint which part failed
-    assert client.post("/auth/login", json={"username": "carla", "password": "longenough1"}).status_code == 401
+    assert client.post("/auth/login", json={"username": "2023-0101", "password": "longenough1"}).status_code == 401
 
 
 def test_one_student_one_account(client):
     assert client.post("/auth/register-student", json=REG).status_code == 200
-    again = client.post("/auth/register-student", json={**REG, "username": "carla2", "email": "other@school.edu"})
+    again = client.post("/auth/register-student", json={**REG, "email": "other@school.edu"})
     assert again.status_code == 409 and again.json()["error_code"] == "CONFLICT"
     seeded = client.post("/auth/register-student", json={**REG, "student_number": "2022-0001", "last_name": "Ramos",
-                                                         "username": "sofia2", "email": "s2@school.edu"})
+                                                         "email": "s2@school.edu"})
     assert seeded.status_code == 409                                     # student1 already owns 2022-0001
 
 
 def test_registration_validation(client):
     assert client.post("/auth/register-student", json={**REG, "password": "short"}).status_code == 422
-    assert client.post("/auth/register-student", json={**REG, "username": "admin"}).json()["fields"]["username"]
     assert client.post("/auth/register-student", json={**REG, "email": "student1@demo.drass.local"}).json()["fields"]["email"]
     assert client.post("/auth/register-student", json={**REG, "email": "not-an-email"}).status_code == 422
 
 
 def test_registration_always_creates_student_role(client):
     client.post("/auth/register-student", json={**REG, "role": "ADMIN"})   # extra field must be ignored
-    assert client.get("/auth/me", headers=login(client, "carla", "longenough1")).json()["role"] == "STUDENT"
+    assert client.get("/auth/me", headers=login(client, "2023-0101", "longenough1")).json()["role"] == "STUDENT"
 
 
 def test_registration_rate_limited(client):
@@ -139,8 +138,19 @@ def test_roster_admin_only_and_csv_import(client):
     r = client.post("/admin/roster/import", headers=a, json={"csv": csv}).json()
     assert r["added"] == 1 and r["skipped"] == 1 and len(r["errors"]) == 1
     assert client.post("/admin/roster/import", headers=a, json={"csv": "a,b\n1,2"}).status_code == 422
-    reg = client.post("/auth/register-student", json={**REG, "student_number": "2024-0001", "last_name": "Mendoza", "username": "lia", "email": "lia@x.io"})
+    reg = client.post("/auth/register-student", json={**REG, "student_number": "2024-0001", "last_name": "Mendoza", "email": "lia@x.io"})
     assert reg.status_code == 200
     rows = client.get("/admin/roster?q=2024", headers=a).json()
     assert rows["items"][0]["account"] == "Registered"
     assert client.post("/admin/roster", headers=a, json={"student_number": "2024-0001", "last_name": "A", "first_name": "B"}).status_code == 409
+
+
+def test_username_is_student_id_and_login_is_case_tolerant(client):
+    assert client.post("/auth/register-student", json={**REG, "username": "ignored"}).json()["username"] == "2023-0101"
+    assert client.post("/auth/login", json={"username": "2023-0101", "password": "longenough1"}).status_code == 200
+    assert client.post("/auth/login", json={"username": "ignored", "password": "longenough1"}).status_code == 401
+
+
+def test_existing_student_can_sign_in_with_student_id(client):
+    r = client.post("/auth/login", json={"username": "2022-0001", "password": "Drass2026"})
+    assert r.status_code == 200                      # seeded student1 keeps its old username, ID also works
